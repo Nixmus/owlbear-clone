@@ -1,0 +1,20 @@
+{
+  "name": "owlbear-clone-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Realtime WebSocket state server + REST API for the Owlbear clone VTT.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "nanoid": "^5.0.9",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,44 @@
+# Azure Container Apps definition for the Owlbear clone.
+# Deploy with:
+#   az containerapp update --name owlbear -g owlbear-rg --yaml azure/containerapp.yaml
+#
+# Replace <acr-name> with your Azure Container Registry name, and set a strong
+# JWT_SECRET. The volume mounts persistent storage for the SQLite DB + uploads.
+#
+# NOTE: Azure Files is a network share, so SQLite WAL is disabled via
+# SQLITE_JOURNAL=delete for reliability.
+properties:
+  configuration:
+    ingress:
+      external: true
+      targetPort: 4000
+      allowInsecure: false
+      transport: auto
+    registries:
+      - server: <acr-name>.azurecr.io
+        identity: system
+  template:
+    containers:
+      - name: owlbear
+        image: <acr-name>.azurecr.io/owlbear-clone:latest
+        env:
+          - name: PORT
+            value: "4000"
+          - name: NODE_ENV
+            value: production
+          - name: JWT_SECRET
+            value: "cambia-esto-por-algo-largo-y-aleatorio"
+          - name: SQLITE_JOURNAL
+            value: delete
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        volumeMounts:
+          - volumeName: owlbear-data
+            mountPath: /app/data
+    volumes:
+      - name: owlbear-data
+        storageName: owlbearvol
+    scale:
+      minReplicas: 1
+      maxReplicas: 1

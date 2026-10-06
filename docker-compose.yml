@@ -1,0 +1,51 @@
+services:
+  owlbear:
+    build: .
+    image: owlbear-clone:latest
+    container_name: owlbear-clone
+    restart: unless-stopped
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+    volumes:
+      - owlbear-data:/app/data
+    # No exponemos el puerto al host: solo Caddy habla con la app.
+    expose:
+      - "4000"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: owlbear-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - owlbear
+
+  # Descomenta para usar PostgreSQL en lugar de SQLite.
+  # db:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: owlbear
+  #     POSTGRES_PASSWORD: owlbear
+  #     POSTGRES_DB: owlbear
+  #   volumes:
+  #     - owlbear-db:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U owlbear"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  owlbear-data:
+  caddy-data:
+  caddy-config:
+  # owlbear-db:

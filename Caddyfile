@@ -1,0 +1,19 @@
+# Caddy: HTTPS automático (Let's Encrypt) + proxy a la app.
+# Sustituye el dominio por el tuyo o por el que te dé el proveedor.
+#
+#   - Dominio propio:        vtt.tudominio.com
+#   - DuckDNS (gratis):      miowlbear.duckdns.org
+#   - Sin dominio (IP):      usa "http://<tu-ip>" y comenta el bloque de abajo
+#
+# Caddy obtiene y renueva el certificado solo. No hace falta tocar nada más.
+
+vtt.tudominio.com {
+	encode zstd gzip
+	reverse_proxy owlbear:4000
+}
+
+# Alternativa sin dominio, sirviendo por IP con HTTPS interno (aviso de certificado):
+# https://<tu-ip> {
+# 	tls internal
+# 	reverse_proxy owlbear:4000
+# }

@@ -1,0 +1,348 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+import cors from 'cors';
+import { WebSocketServer } from 'ws';
+import { nanoid } from 'nanoid';
+import { db } from './db.js';
+import { router, UPLOAD_DIR } from './api.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = process.env.PORT || 4000;
+const CLIENT_DIST = path.resolve(__dirname, '..', 'client', 'dist');
+
+/* ------------------------------------------------------------------ *
+ * Room state
+ * ------------------------------------------------------------------ */
+
+function emptyScene(name = 'Scene 1') {
+  return {
+    id: nanoid(10),
+    name,
+    mapUrl: null,
+    backgroundColor: '#2b2b33',
+    gridType: 'square',
+    gridSize: 70,
+    gridColor: '#ffffff22',
+    width: 1920,
+    height: 1080,
+  };
+}
+
+function emptyRoom(id) {
+  const scene = emptyScene();
+  return {
+    id,
+    tokens: [],
+    drawings: [],
+    fog: [],
+    chat: [],
+    scenes: [scene],
+    activeSceneId: scene.id,
+    updatedAt: Date.now(),
+  };
+}
+
+const rooms = new Map(); // roomId -> { state, saveTimer }
+const players = new Map(); // roomId -> Map<clientId, player>
+const connections = new Map(); // roomId -> Set<ws>
+
+function loadRoom(roomId) {
+  const room = emptyRoom(roomId);
+  try {
+    const row = db.prepare('SELECT state FROM rooms WHERE id = ?').get(roomId);
+    if (row?.state) {
+      const parsed = JSON.parse(row.state);
+      Object.assign(room, parsed);
+      if (!Array.isArray(room.scenes) || room.scenes.length === 0) {
+        const scene = emptyScene();
+        room.scenes = [scene];
+        room.activeSceneId = scene.id;
+      }
+      room.id = roomId;
+    }
+  } catch {
+    /* fresh room */
+  }
+  return room;
+}
+
+function getRoom(roomId) {
+  if (!rooms.has(roomId)) rooms.set(roomId, { state: loadRoom(roomId), saveTimer: null });
+  return rooms.get(roomId);
+}
+
+const upsertRoom = () =>
+  db.prepare(
+    `INSERT INTO rooms (id, state, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at`,
+  );
+
+function persist(roomId) {
+  const entry = rooms.get(roomId);
+  if (!entry || entry.saveTimer) return;
+  entry.saveTimer = setTimeout(() => {
+    entry.saveTimer = null;
+    entry.state.updatedAt = Date.now();
+    try {
+      upsertRoom().run(roomId, JSON.stringify(entry.state), entry.state.updatedAt);
+      recordSession(roomId, entry.state);
+    } catch (err) {
+      console.error('persist failed', err);
+    }
+  }, 400);
+}
+
+// When a room id matches a campaign, mirror its chat into the newest open session.
+function recordSession(roomId, state) {
+  const campaign = db.prepare('SELECT id FROM campaigns WHERE id = ?').get(roomId);
+  if (!campaign) return;
+  const session = db
+    .prepare('SELECT id FROM sessions WHERE campaign_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1')
+    .get(roomId);
+  if (!session) return;
+  const record = {
+    chat: state.chat.slice(-200),
+    scenes: state.scenes.map((s) => ({ id: s.id, name: s.name, mapUrl: s.mapUrl })),
+    tokens: state.tokens.length,
+    updatedAt: Date.now(),
+  };
+  db.prepare('UPDATE sessions SET record = ? WHERE id = ?').run(JSON.stringify(record), session.id);
+}
+
+/* ------------------------------------------------------------------ *
+ * Action reducer (server-authoritative)
+ * ------------------------------------------------------------------ */
+
+function merge(target, patch) {
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (v === undefined) continue;
+    target[k] = v;
+  }
+  return target;
+}
+
+function applyAction(state, action) {
+  if (!action || typeof action !== 'object') return false;
+  switch (action.kind) {
+    case 'scene.add':
+      if (!action.scene?.id) return false;
+      if (!state.scenes.some((s) => s.id === action.scene.id)) state.scenes.push(action.scene);
+      return true;
+    case 'scene.update': {
+      const scene = state.scenes.find((s) => s.id === action.id);
+      if (!scene) return false;
+      merge(scene, action.patch);
+      return true;
+    }
+    case 'scene.remove':
+      if (state.scenes.length <= 1) return false;
+      state.scenes = state.scenes.filter((s) => s.id !== action.id);
+      if (state.activeSceneId === action.id) state.activeSceneId = state.scenes[0].id;
+      state.tokens = state.tokens.filter((t) => t.sceneId !== action.id);
+      state.drawings = state.drawings.filter((d) => d.sceneId !== action.id);
+      state.fog = state.fog.filter((f) => f.sceneId !== action.id);
+      return true;
+    case 'scene.activate':
+      if (state.scenes.some((s) => s.id === action.id)) {
+        state.activeSceneId = action.id;
+        return true;
+      }
+      return false;
+    case 'token.add':
+      if (!action.token?.id) return false;
+      if (!state.tokens.some((t) => t.id === action.token.id)) state.tokens.push(action.token);
+      return true;
+    case 'token.update': {
+      const token = state.tokens.find((t) => t.id === action.id);
+      if (!token) return false;
+      merge(token, action.patch);
+      return true;
+    }
+    case 'token.remove':
+      state.tokens = state.tokens.filter((t) => t.id !== action.id);
+      return true;
+    case 'drawing.add':
+      if (!action.drawing?.id) return false;
+      if (!state.drawings.some((x) => x.id === action.drawing.id)) state.drawings.push(action.drawing);
+      return true;
+    case 'drawing.update': {
+      const d = state.drawings.find((x) => x.id === action.id);
+      if (!d) return false;
+      merge(d, action.patch);
+      return true;
+    }
+    case 'drawing.remove':
+      state.drawings = state.drawings.filter((d) => d.id !== action.id);
+      return true;
+    case 'drawing.clear':
+      state.drawings = state.drawings.filter((d) => d.sceneId !== action.sceneId);
+      return true;
+    case 'fog.add':
+      if (!action.shape?.id) return false;
+      if (!state.fog.some((x) => x.id === action.shape.id)) state.fog.push(action.shape);
+      return true;
+    case 'fog.clear':
+      state.fog = state.fog.filter((f) => f.sceneId !== action.sceneId);
+      return true;
+    case 'chat.add':
+      if (!action.message?.id) return false;
+      state.chat.push(action.message);
+      if (state.chat.length > 300) state.chat.splice(0, state.chat.length - 300);
+      return true;
+    default:
+      return false;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * HTTP app
+ * ------------------------------------------------------------------ */
+
+const app = express();
+// CORS: same-origin in the default (combined) deployment. Set CORS_ORIGIN to a
+// comma-separated list of origins if you host the frontend elsewhere.
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
+  : true;
+app.use(cors({ origin: corsOrigin, credentials: true }));
+app.use(express.json({ limit: '2mb' }));
+
+// REST API
+app.use('/api', router);
+
+// Uploaded files
+app.use('/uploads', express.static(UPLOAD_DIR));
+
+// Health
+app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+// Static client (production build)
+app.use(express.static(CLIENT_DIST));
+app.get(/^\/(?!api|uploads|healthz).*/, (_req, res) => {
+  const index = path.join(CLIENT_DIST, 'index.html');
+  if (fs.existsSync(index)) res.sendFile(index);
+  else res.json({ ok: true, message: 'Owlbear clone server running (client not built).' });
+});
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: undefined });
+
+wss.on('connection', (ws) => {
+  ws.clientId = nanoid(8);
+  ws.roomId = null;
+  ws.isAlive = true;
+  ws.on('pong', () => (ws.isAlive = true));
+
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg.type !== 'string') return;
+
+    if (msg.type === 'join') {
+      const roomId = String(msg.roomId || 'default').slice(0, 64);
+      ws.roomId = roomId;
+      if (!connections.has(roomId)) connections.set(roomId, new Set());
+      connections.get(roomId).add(ws);
+      if (!players.has(roomId)) players.set(roomId, new Map());
+
+      const player = {
+        id: ws.clientId,
+        name: String(msg.name || 'Player').slice(0, 32),
+        color: msg.color || '#7dd3fc',
+        role: msg.role === 'gm' ? 'gm' : 'player',
+        joinedAt: Date.now(),
+      };
+      players.get(roomId).set(ws.clientId, player);
+
+      const { state } = getRoom(roomId);
+      send(ws, { type: 'init', clientId: ws.clientId, state, players: [...players.get(roomId).values()] });
+      broadcast(roomId, { type: 'players', players: [...players.get(roomId).values()] }, ws);
+      return;
+    }
+
+    if (!ws.roomId) return;
+    const entry = getRoom(ws.roomId);
+
+    if (msg.type === 'action') {
+      if (applyAction(entry.state, msg.action)) {
+        persist(ws.roomId);
+        broadcast(ws.roomId, { type: 'action', action: msg.action, from: ws.clientId });
+      }
+      return;
+    }
+
+    if (msg.type === 'cursor') {
+      broadcast(
+        ws.roomId,
+        { type: 'cursor', from: ws.clientId, x: msg.x, y: msg.y, sceneId: msg.sceneId },
+        ws,
+      );
+      return;
+    }
+
+    if (msg.type === 'profile') {
+      const p = players.get(ws.roomId)?.get(ws.clientId);
+      if (p) {
+        if (msg.name) p.name = String(msg.name).slice(0, 32);
+        if (msg.color) p.color = msg.color;
+        if (msg.role) p.role = msg.role === 'gm' ? 'gm' : 'player';
+        broadcast(ws.roomId, { type: 'players', players: [...players.get(ws.roomId).values()] });
+      }
+      return;
+    }
+
+    if (msg.type === 'ping') send(ws, { type: 'pong', t: msg.t });
+  });
+
+  ws.on('close', () => {
+    if (ws.roomId) {
+      connections.get(ws.roomId)?.delete(ws);
+      players.get(ws.roomId)?.delete(ws.clientId);
+      broadcast(ws.roomId, { type: 'players', players: [...(players.get(ws.roomId)?.values() ?? [])] });
+    }
+  });
+
+  ws.on('error', () => {});
+});
+
+function send(ws, payload) {
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
+}
+
+function broadcast(roomId, payload, except) {
+  const set = connections.get(roomId);
+  if (!set) return;
+  const data = JSON.stringify(payload);
+  for (const ws of set) {
+    if (ws === except) continue;
+    if (ws.readyState === ws.OPEN) ws.send(data);
+  }
+}
+
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      /* ignore */
+    }
+  }
+}, 30000);
+
+server.listen(PORT, () => {
+  console.log(`Owlbear clone server listening on http://localhost:${PORT}`);
+  console.log(`REST API:  http://localhost:${PORT}/api`);
+  console.log(`WebSocket: ws://localhost:${PORT}`);
+});
