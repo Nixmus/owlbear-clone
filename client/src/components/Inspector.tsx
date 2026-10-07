@@ -6,6 +6,7 @@ import { can, type Role } from '../permissions';
 import type { Token } from '../types';
 
 const COLORS = ['#60a5fa', '#f87171', '#4ade80', '#fbbf24', '#a78bfa', '#f472b6', '#34d399', '#fb923c'];
+const CONDITIONS = ['poisoned', 'prone', 'stunned', 'invisible', 'burning', 'blessed', 'dead', 'grappled'];
 
 export default function Inspector({ selectedId, role }: { selectedId: string | null; role: Role }) {
   const state = useStore((s) => s.state);
@@ -45,6 +46,11 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
 
   const isGM = can(role, 'token.deleteAny');
   const patch = (p: Partial<Token>) => dispatch({ kind: 'token.update', id: token.id, patch: p });
+
+  const toggleCondition = (c: string) => {
+    const has = token.conditions.includes(c);
+    patch({ conditions: has ? token.conditions.filter((x) => x !== c) : [...token.conditions, c] });
+  };
 
   return (
     <div className="panel">
