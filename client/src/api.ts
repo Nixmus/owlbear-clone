@@ -126,3 +126,31 @@ export interface GameSession {
   startedAt: number;
   endedAt: number | null;
 }
+
+export interface Overview {
+  counts: { campaigns: number; characters: number; assets: number; sessions: number };
+  campaigns: Array<{
+    id: string;
+    name: string;
+    system: string | null;
+    coverUrl: string | null;
+    role: string;
+    updatedAt: number;
+  }>;
+  recentCharacters: Array<{
+    id: string;
+    campaign_id: string;
+    name: string;
+    kind: string;
+    portrait_url: string | null;
+    updated_at: number;
+  }>;
+  recentSessions: Array<{
+    id: string;
+    campaign_id: string;
+    name: string;
+    started_at: number;
+    ended_at: number | null;
+    campaign_name: string;
+  }>;
+}

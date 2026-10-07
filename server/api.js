@@ -128,6 +128,71 @@ router.patch('/me', auth, (req, res) => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Account overview (single-pane dashboard)
+ * ------------------------------------------------------------------ */
+
+router.get('/overview', auth, (req, res) => {
+  const uid = req.user.id;
+  const campaigns = db
+    .prepare(
+      `SELECT c.id, c.name, c.system, c.cover_url, c.updated_at,
+              CASE WHEN c.owner_id = ? THEN 'owner' ELSE cm.role END AS role
+       FROM campaigns c
+       LEFT JOIN campaign_members cm ON cm.campaign_id = c.id AND cm.user_id = ?
+       WHERE c.owner_id = ? OR cm.user_id IS NOT NULL
+       ORDER BY c.updated_at DESC`,
+    )
+    .all(uid, uid, uid);
+
+  const counts = {
+    campaigns: campaigns.length,
+    characters: db
+      .prepare('SELECT COUNT(*) AS n FROM characters WHERE owner_id = ?')
+      .get(uid).n,
+    assets: db
+      .prepare('SELECT COUNT(*) AS n FROM assets WHERE owner_id = ?')
+      .get(uid).n,
+    sessions: db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sessions s
+         JOIN campaigns c ON c.id = s.campaign_id
+         WHERE c.owner_id = ? OR c.id IN (SELECT campaign_id FROM campaign_members WHERE user_id = ?)`,
+      )
+      .get(uid, uid).n,
+  };
+
+  const recentCharacters = db
+    .prepare(
+      `SELECT id, campaign_id, name, kind, portrait_url, updated_at
+       FROM characters WHERE owner_id = ? ORDER BY updated_at DESC LIMIT 6`,
+    )
+    .all(uid);
+
+  const recentSessions = db
+    .prepare(
+      `SELECT s.id, s.campaign_id, s.name, s.started_at, s.ended_at, c.name AS campaign_name
+       FROM sessions s JOIN campaigns c ON c.id = s.campaign_id
+       WHERE c.owner_id = ? OR c.id IN (SELECT campaign_id FROM campaign_members WHERE user_id = ?)
+       ORDER BY s.started_at DESC LIMIT 6`,
+    )
+    .all(uid, uid);
+
+  res.json({
+    counts,
+    campaigns: campaigns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      system: c.system,
+      coverUrl: c.cover_url,
+      role: c.role,
+      updatedAt: c.updated_at,
+    })),
+    recentCharacters,
+    recentSessions,
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Campaigns
  * ------------------------------------------------------------------ */
 

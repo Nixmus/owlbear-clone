@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
+import Icon from '../Icon';
+import { roleLabel } from '../Hub';
 
 interface Member {
   id: string;
@@ -51,49 +53,59 @@ export default function MemberManager({ campaignId }: { campaignId: string }) {
   return (
     <div className="hub-grid">
       <div className="hub-card">
-        <h3>Members</h3>
+        <h3>Miembros de la campaña</h3>
         <ul className="list">
           {owner && (
             <li>
               <span className="dot" style={{ background: '#fbbf24' }} />
-              <b>{owner.displayName}</b> <span className="chip">owner</span>
+              <b>{owner.displayName}</b> <span className="chip">{roleLabel('owner')}</span>
             </li>
           )}
           {members.map((m) => (
             <li key={m.id}>
               <span className="dot" style={{ background: m.avatarUrl || '#7dd3fc' }} />
-              <b>{m.displayName}</b>{' '}
-              <span className="muted">@{m.username}</span>{' '}
-              <span className="chip">{m.role}</span>
+              <b>{m.displayName}</b> <span className="muted">@{m.username}</span>{' '}
+              <span className="chip">{roleLabel(m.role)}</span>
               {canEdit && (
-                <button className="btn sm danger" onClick={() => remove(m.id)}>
-                  ✕
+                <button
+                  className="icon-btn danger"
+                  title="Quitar de la campaña"
+                  onClick={() => remove(m.id)}
+                >
+                  <Icon name="close" size={14} />
                 </button>
               )}
             </li>
           ))}
-          {members.length === 0 && !owner && <li className="muted">No members yet.</li>}
+          {members.length === 0 && !owner && <li className="muted">Aún no hay miembros.</li>}
         </ul>
       </div>
 
       {canEdit && (
         <div className="hub-card">
-          <h3>Invite by username</h3>
+          <h3>Invitar a un usuario</h3>
+          <p className="muted">
+            La persona debe tener cuenta. Escribe su nombre de usuario para añadirla.
+          </p>
           <div className="field">
-            <label>Username</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. aragorn" />
+            <label>Usuario</label>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="p. ej. aragorn"
+            />
           </div>
           <div className="field">
-            <label>Campaign role</label>
+            <label>Rol en la campaña</label>
             <select value={memberRole} onChange={(e) => setMemberRole(e.target.value)}>
-              <option value="gm">Game Master</option>
-              <option value="player">Player</option>
-              <option value="observer">Observer</option>
+              <option value="gm">Director de juego</option>
+              <option value="player">Jugador</option>
+              <option value="observer">Observador</option>
             </select>
           </div>
           {error && <p className="error">{error}</p>}
           <button className="btn primary" onClick={add} disabled={!username}>
-            ➕ Add member
+            <Icon name="plus" size={14} /> Añadir miembro
           </button>
         </div>
       )}

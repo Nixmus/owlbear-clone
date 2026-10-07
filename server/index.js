@@ -124,20 +124,24 @@ function merge(target, patch) {
   return target;
 }
 
-function applyAction(state, action) {
+function applyAction(state, action, role = 'player') {
   if (!action || typeof action !== 'object') return false;
+  const isGM = role === 'gm';
   switch (action.kind) {
     case 'scene.add':
+      if (!isGM) return false;
       if (!action.scene?.id) return false;
       if (!state.scenes.some((s) => s.id === action.scene.id)) state.scenes.push(action.scene);
       return true;
     case 'scene.update': {
+      if (!isGM) return false;
       const scene = state.scenes.find((s) => s.id === action.id);
       if (!scene) return false;
       merge(scene, action.patch);
       return true;
     }
     case 'scene.remove':
+      if (!isGM) return false;
       if (state.scenes.length <= 1) return false;
       state.scenes = state.scenes.filter((s) => s.id !== action.id);
       if (state.activeSceneId === action.id) state.activeSceneId = state.scenes[0].id;
@@ -158,6 +162,11 @@ function applyAction(state, action) {
     case 'token.update': {
       const token = state.tokens.find((t) => t.id === action.id);
       if (!token) return false;
+      // Players may not hide/lock tokens nor change ownership.
+      if (!isGM) {
+        const forbidden = ['hidden', 'locked', 'owner'];
+        for (const k of forbidden) if (k in (action.patch || {})) delete action.patch[k];
+      }
       merge(token, action.patch);
       return true;
     }
@@ -178,13 +187,16 @@ function applyAction(state, action) {
       state.drawings = state.drawings.filter((d) => d.id !== action.id);
       return true;
     case 'drawing.clear':
+      if (!isGM) return false;
       state.drawings = state.drawings.filter((d) => d.sceneId !== action.sceneId);
       return true;
     case 'fog.add':
+      if (!isGM) return false;
       if (!action.shape?.id) return false;
       if (!state.fog.some((x) => x.id === action.shape.id)) state.fog.push(action.shape);
       return true;
     case 'fog.clear':
+      if (!isGM) return false;
       state.fog = state.fog.filter((f) => f.sceneId !== action.sceneId);
       return true;
     case 'chat.add':
@@ -271,7 +283,9 @@ wss.on('connection', (ws) => {
     const entry = getRoom(ws.roomId);
 
     if (msg.type === 'action') {
-      if (applyAction(entry.state, msg.action)) {
+      const player = players.get(ws.roomId)?.get(ws.clientId);
+      const role = player?.role === 'gm' ? 'gm' : 'player';
+      if (applyAction(entry.state, msg.action, role)) {
         persist(ws.roomId);
         broadcast(ws.roomId, { type: 'action', action: msg.action, from: ws.clientId });
       }

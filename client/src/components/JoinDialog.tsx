@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useStore } from '../store';
 import { nanoid } from '../util';
+import Icon from './Icon';
+import Brand from './Brand';
 
 const COLORS = ['#7dd3fc', '#f472b6', '#4ade80', '#fbbf24', '#a78bfa', '#fb923c', '#f87171', '#34d399'];
 
@@ -15,8 +17,7 @@ export default function JoinDialog() {
   const [room, setRoom] = useState(roomId);
 
   const join = () => {
-    // Persist identity so the store can send it on the socket handshake.
-    const finalName = name.trim() || 'Adventurer';
+    const finalName = name.trim() || 'Aventurero';
     localStorage.setItem('vtt.name', finalName);
     localStorage.setItem('vtt.color', color);
     localStorage.setItem('vtt.role', role);
@@ -31,16 +32,16 @@ export default function JoinDialog() {
     <div className="overlay">
       <div className="card">
         <h1>
-          <span>🦉</span> Join a table
+          <Brand withName={false} /> Unirse a una mesa
         </h1>
-        <p>Pick a name and color, then join or create a room to play together.</p>
+        <p>Elige tu nombre y color, y comparte el código de sala con tus jugadores.</p>
 
         <div className="field">
-          <label>Display name</label>
+          <label>Tu nombre</label>
           <input
             type="text"
             value={name}
-            placeholder="Adventurer"
+            placeholder="Cómo te verán los demás"
             autoFocus
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && join()}
@@ -48,13 +49,19 @@ export default function JoinDialog() {
         </div>
 
         <div className="field">
-          <label>Room id</label>
+          <label>Código de sala</label>
           <div className="row">
             <input type="text" value={room} onChange={(e) => setRoom(e.target.value)} />
-            <button className="btn" style={{ flex: 'none' }} onClick={() => setRoom(nanoid(6))}>
-              🎲 New
+            <button
+              className="btn"
+              style={{ flex: 'none' }}
+              title="Generar un código nuevo"
+              onClick={() => setRoom(nanoid(6))}
+            >
+              <Icon name="dice" size={14} /> Nuevo
             </button>
           </div>
+          <span className="hint">Todos los que usen el mismo código juegan juntos.</span>
         </div>
 
         <div className="field">
@@ -72,19 +79,19 @@ export default function JoinDialog() {
         </div>
 
         <div className="field">
-          <label>Role</label>
+          <label>Rol</label>
           <div className="role-toggle">
             <button className={role === 'gm' ? 'active' : ''} onClick={() => setRole('gm')}>
-              👑 Game Master
+              <Icon name="crown" size={14} /> Director de juego
             </button>
             <button className={role === 'player' ? 'active' : ''} onClick={() => setRole('player')}>
-              🧙 Player
+              <Icon name="user" size={14} /> Jugador
             </button>
           </div>
         </div>
 
-        <button className="btn primary" style={{ padding: '10px' }} onClick={join}>
-          Enter table →
+        <button className="btn primary big" onClick={join}>
+          Entrar a la mesa
         </button>
       </div>
     </div>

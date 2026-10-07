@@ -9,7 +9,9 @@ import JoinDialog from './components/JoinDialog';
 import Hub from './components/Hub';
 import { useStore } from './store';
 import { useAuth } from './auth';
+import Icon from './components/Icon';
 import type { Tool } from './types';
+import type { Role } from './permissions';
 import { nanoid } from './util';
 
 /**
@@ -57,8 +59,8 @@ export default function App() {
     return (
       <div className="hub-app">
         <Hub />
-        <a className="quickplay-fab" href={`/?room=${nanoid(6)}`} title="Quick play without an account">
-          🎲 Quick play
+        <a className="quickplay-fab" href={`/?room=${nanoid(6)}`} title="Jugar sin cuenta">
+          <Icon name="dice" size={16} /> Partida rápida
         </a>
       </div>
     );
@@ -74,6 +76,9 @@ function Table() {
   const state = useStore((s) => s.state);
   const dispatch = useStore((s) => s.dispatch);
   const self = useStore((s) => s.self);
+  const isLogged = useAuth((s) => !!s.user);
+
+  const role = (self.role as Role) || 'player';
 
   const [tool, setTool] = useState<Tool>('select');
   const [color, setColor] = useState(localStorage.getItem('vtt.drawColor') || '#fbbf24');
@@ -128,13 +133,13 @@ function Table() {
         x,
         y,
         size,
-        name: 'New token',
+        name: 'Nuevo token',
         color: self.color,
         imageUrl: null,
         hidden: false,
         locked: false,
         conditions: [],
-        owner: null,
+        owner: role === 'player' ? self.id : null,
       },
     });
   };
@@ -145,15 +150,21 @@ function Table() {
   };
 
   const clearDrawings = () => {
-    if (scene && confirm('Clear all drawings on this scene?')) {
+    if (scene && confirm('¿Borrar todos los dibujos de esta escena?')) {
       dispatch({ kind: 'drawing.clear', sceneId: scene.id });
     }
   };
 
   const clearFog = () => {
-    if (scene && confirm('Reset fog of war on this scene?')) {
+    if (scene && confirm('¿Reiniciar la niebla de esta escena?')) {
       dispatch({ kind: 'fog.clear', sceneId: scene.id });
     }
+  };
+
+  const leaveTable = () => {
+    const url = new URL(location.href);
+    url.searchParams.delete('room');
+    location.href = url.toString();
   };
 
   const joined = status === 'connected' || status === 'connecting';
@@ -164,6 +175,7 @@ function Table() {
       <ToolRail
         tool={tool}
         setTool={setTool}
+        role={role}
         canUndo={sceneDrawings.length > 0}
         onUndo={undoDrawing}
         onClearDrawings={clearDrawings}
@@ -181,6 +193,7 @@ function Table() {
 
       <div className="side">
         <ScenePanel
+          role={role}
           color={color}
           setColor={setColor}
           strokeWidth={strokeWidth}
@@ -190,9 +203,13 @@ function Table() {
           fogOccludes={fogOccludes}
           setFogOccludes={setFogOccludes}
         />
-        <Inspector selectedId={selectedId} />
+        <Inspector selectedId={selectedId} role={role} />
         <Chat />
       </div>
+
+      <button className="leave-btn" onClick={leaveTable} title="Salir de esta mesa">
+        <Icon name="close" size={14} /> {isLogged ? 'Volver al panel' : 'Salir de la mesa'}
+      </button>
 
       {!joined && <JoinDialog />}
     </div>

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
+import Icon from './Icon';
+import { can, type Role } from '../permissions';
 import type { Drawing, FogShape, Token, Tool } from '../types';
 import { useViewport } from '../hooks/useViewport';
 import { clamp, nanoid } from '../util';
@@ -36,6 +38,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   const scene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
 
   // notify the app (Inspector) about the current selection
   useEffect(() => {
@@ -64,6 +67,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   );
 
   const isGM = self.role === 'gm';
+  const role = (self.role as Role) || 'player';
   const selected = sceneTokens.find((t) => t.id === selectedId) || null;
 
   /* ---------------- fit initial view ---------------- */
@@ -86,10 +90,20 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         const t = state.tokens.find((x) => x.id === selectedId);
-        if (t && !t.locked) dispatch({ kind: 'token.remove', id: selectedId });
+        const mine = t && (!t.owner || t.owner === self.id);
+        if (t && !t.locked && (can(role, 'token.deleteAny') || mine)) {
+          dispatch({ kind: 'token.remove', id: selectedId });
+        }
         setSelectedId(null);
       }
-      if (e.key === 'Escape') setSelectedId(null);
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDrawingId) {
+        if (can(role, 'draw')) dispatch({ kind: 'drawing.remove', id: selectedDrawingId });
+        setSelectedDrawingId(null);
+      }
+      if (e.key === 'Escape') {
+        setSelectedId(null);
+        setSelectedDrawingId(null);
+      }
     };
     const up = (e: KeyboardEvent) => {
       if (e.code === 'Space') setSpaceDown(false);
@@ -100,7 +114,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, [selectedId, state.tokens, dispatch]);
+  }, [selectedId, selectedDrawingId, state.tokens, dispatch, role, self.id]);
 
   /* ---------------- pointer ---------------- */
   const panning = tool === 'pan' || spaceDown;
@@ -123,15 +137,18 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
       case 'select': {
         // clicked on empty board -> deselect
         setSelectedId(null);
+        setSelectedDrawingId(null);
         setDrag({ type: 'marquee' });
         break;
       }
       case 'ruler':
+        if (!can(role, 'measure')) break;
         setDrag({ type: 'ruler', start: w, current: w });
         setRuler({ a: w, b: w });
         break;
       case 'fog-reveal':
       case 'fog-hide': {
+        if (!can(role, 'fog.edit')) break;
         const mode = tool === 'fog-reveal' ? 'reveal' : 'hide';
         // stroke mode with brush: paint a small square immediately
         setDrag({ type: 'fog', start: w, current: w });
@@ -142,6 +159,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
       case 'line':
       case 'rect':
       case 'circle':
+        if (!can(role, 'draw')) break;
         setDrag({ type: 'draw', points: [w.x, w.y, w.x, w.y] });
         setDraftPoints([w.x, w.y, w.x, w.y]);
         break;
@@ -251,6 +269,10 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
     if (panning || tool !== 'select') return;
     e.stopPropagation();
     if (token.hidden && !isGM) return;
+    // Players may only move their own (or unowned) tokens.
+    const mine = !token.owner || token.owner === self.id;
+    const canMove = can(role, 'token.moveAny') || mine;
+    if (!canMove || token.locked) return;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     setSelectedId(token.id);
     const w = worldAt(e);
@@ -334,16 +356,10 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         }}
       >
         {/* Map */}
-        <div className="map-layer" style={{ width: scene.width, height: scene.height }}>
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: scene.backgroundColor,
-              width: scene.width,
-              height: scene.height,
-            }}
-          />
+        <div
+          className="map-layer"
+          style={{ width: scene.width, height: scene.height, background: scene.backgroundColor }}
+        >
           {scene.mapUrl && showMap && (
             <img
               className="map-img"
@@ -368,10 +384,23 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
           className="grid-svg"
           width={scene.width}
           height={scene.height}
-          style={{ overflow: 'visible' }}
+          style={{ overflow: 'visible', pointerEvents: tool === 'select' ? 'auto' : 'none' }}
         >
           {sceneDrawings.map((d) => (
-            <DrawingShape key={d.id} d={d} />
+            <g
+              key={d.id}
+              onPointerDown={(e) => {
+                if (tool !== 'select') return;
+                e.stopPropagation();
+                setSelectedDrawingId(d.id);
+                setSelectedId(null);
+              }}
+              style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+            >
+              {/* invisible thick hit area for easier clicking */}
+              <DrawingShape d={d} hit />
+              <DrawingShape d={d} selected={d.id === selectedDrawingId} />
+            </g>
           ))}
           {draftPoints && (
             <DrawingShape
@@ -456,7 +485,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
             onClick={() => setShowMap((v) => !v)}
             title="Toggle map image"
           >
-            {showMap ? '🗺 Map' : '🚫 Map'}
+            {showMap ? 'Map' : 'No map'}
           </button>
           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
             {Math.round(viewport.scale * 100)}%
@@ -477,10 +506,16 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
 
 /* ------------------------------------------------------------------ */
 
-function DrawingShape({ d }: { d: Drawing }) {
+function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hit?: boolean }) {
   if (d.points.length < 4) return null;
   const [x1, y1, x2, y2] = d.points;
-  const common = { stroke: d.color, strokeWidth: d.width, fill: 'none', strokeLinecap: 'round' as const };
+  const common = {
+    stroke: hit ? 'transparent' : selected ? 'var(--accent)' : d.color,
+    strokeWidth: hit ? Math.max(d.width, 16) : selected ? d.width + 2 : d.width,
+    fill: 'none',
+    strokeLinecap: 'round' as const,
+    pointerEvents: hit ? ('stroke' as const) : ('none' as const),
+  };
   switch (d.kind) {
     case 'pen': {
       let path = `M${d.points[0]} ${d.points[1]}`;
@@ -531,7 +566,7 @@ function RulerHud({ ruler, gridSize }: { ruler: { a: Vec; b: Vec }; gridSize: nu
   const cells = Math.hypot(ruler.b.x - ruler.a.x, ruler.b.y - ruler.a.y) / gridSize;
   return (
     <div className="viewport-readout" style={{ right: 'auto', left: '50%', transform: 'translateX(-50%)' }}>
-      📏 {cells.toFixed(2)} casillas ({Math.round(cells * 5)} ft)
+      {cells.toFixed(2)} casillas ({Math.round(cells * 5)} ft)
     </div>
   );
 }
@@ -657,10 +692,22 @@ function TokenView({
         )}
       </div>
       {token.locked && (
-        <div style={{ position: 'absolute', top: -8, right: -6, fontSize: 12 }}>🔒</div>
+        <div
+          className="token-badge"
+          style={{ position: 'absolute', top: -8, right: -6 }}
+          title="Locked"
+        >
+          <Icon name="lock" size={12} />
+        </div>
       )}
       {token.hidden && isGM && (
-        <div style={{ position: 'absolute', bottom: -6, left: -6, fontSize: 12 }}>👁‍🗨</div>
+        <div
+          className="token-badge"
+          style={{ position: 'absolute', bottom: -6, left: -6 }}
+          title="Hidden from players"
+        >
+          <Icon name="eyeoff" size={12} />
+        </div>
       )}
       {(token.conditions.length > 0 || token.name) && (
         <div
@@ -677,26 +724,26 @@ function TokenView({
             marginTop: 2,
           }}
         >
-          {token.conditions.map((c) => conditionIcon(c)).join(' ')} {token.name}
+          {token.conditions.length > 0 && (
+            <span style={{ color: 'var(--warn)' }}>{token.conditions.join(', ')} </span>
+          )}
+          {token.name}
         </div>
       )}
       {token.owner && token.owner === selfId && (
-        <div style={{ position: 'absolute', top: -7, left: -7, fontSize: 11 }}>👑</div>
+        <div
+          className="token-badge"
+          style={{ position: 'absolute', top: -7, left: -7 }}
+          title="Your token"
+        >
+          <Icon name="crown" size={11} />
+        </div>
       )}
     </div>
   );
 }
 
+/** Human-readable label for a condition (no emoji). */
 export function conditionIcon(c: string): string {
-  const map: Record<string, string> = {
-    poisoned: '🧪',
-    prone: '🔻',
-    stunned: '💫',
-    invisible: '👻',
-    burning: '🔥',
-    blessed: '✨',
-    dead: '💀',
-    grappled: '🪢',
-  };
-  return map[c] || '❔';
+  return c;
 }

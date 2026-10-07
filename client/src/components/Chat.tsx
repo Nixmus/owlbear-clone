@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { rollDice } from '../dice';
 import { nanoid } from '../util';
+import Icon from './Icon';
 
 export default function Chat() {
   const chat = useStore((s) => s.state.chat);
@@ -31,7 +32,7 @@ export default function Chat() {
             id: nanoid(),
             author: self.name,
             color: self.color,
-            text: `🎲 ${result.formula} → ${result.total}  ${result.breakdown}`,
+            text: `${result.formula} = ${result.total}  ${result.breakdown}`,
             ts: Date.now(),
           },
         });
@@ -60,16 +61,19 @@ export default function Chat() {
   return (
     <div className="panel chat">
       <div className="panel-head">
-        <span>💬 Chat & Dice</span>
+        <Icon name="chat" size={14} />
+        <span>Chat y dados</span>
         <span className="grow" />
-        <button onClick={() => setCollapsed((v) => !v)}>{collapsed ? '▾' : '▴'}</button>
+        <button onClick={() => setCollapsed((v) => !v)} title={collapsed ? 'Expandir' : 'Contraer'}>
+          {collapsed ? '▾' : '▴'}
+        </button>
       </div>
       {!collapsed && (
         <>
           <div className="chat-log" ref={logRef}>
             {chat.length === 0 && (
-              <p style={{ color: 'var(--text-dim)', fontSize: 12 }}>
-                Type a message, or <code>/r 2d6+3</code> to roll dice.
+              <p className="hint">
+                Escribe un mensaje, o <code>/r 2d6+3</code> para tirar dados.
               </p>
             )}
             {chat.map((m) => (
@@ -86,14 +90,14 @@ export default function Chat() {
           <div className="chat-input">
             <input
               value={text}
-              placeholder="Message or /r 2d6+3"
+              placeholder="Mensaje o /r 2d6+3"
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') submit();
               }}
             />
             <button className="btn primary" onClick={submit}>
-              Send
+              Enviar
             </button>
           </div>
         </>

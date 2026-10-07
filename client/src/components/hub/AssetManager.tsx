@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, assetUrl, type Asset } from '../../api';
+import Icon from '../Icon';
 
-const KINDS = ['image', 'map', 'token', 'audio', 'doc'];
+const KINDS = [
+  { value: 'image', label: 'Imagen' },
+  { value: 'map', label: 'Mapa' },
+  { value: 'token', label: 'Token' },
+  { value: 'audio', label: 'Audio' },
+  { value: 'doc', label: 'Documento' },
+];
 
 export default function AssetManager({ campaignId }: { campaignId: string }) {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -55,18 +62,29 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
   return (
     <div className="hub">
       <div className="hub-card">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h3>Campaign assets</h3>
+        <div className="row spread">
+          <div>
+            <h3>Recursos de la campaña</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              Mapas, retratos, tokens, música y documentos. Copia la URL para usarla en la mesa.
+            </p>
+          </div>
           <div className="row" style={{ flex: 'none', gap: 8 }}>
             <select value={kind} onChange={(e) => setKind(e.target.value)}>
               {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
+                <option key={k.value} value={k.value}>
+                  {k.label}
                 </option>
               ))}
             </select>
             <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
-              {uploading ? 'Uploading…' : '⬆️ Upload'}
+              {uploading ? (
+                'Subiendo…'
+              ) : (
+                <>
+                  <Icon name="upload" size={14} /> Subir
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -85,27 +103,40 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
               {a.mime.startsWith('image/') ? (
                 <img src={assetUrl(a.url) || a.url} alt={a.name} />
               ) : (
-                <div className="asset-file">📄</div>
+                <div className="asset-file">
+                  <Icon name="file" size={34} />
+                </div>
               )}
               <div className="asset-meta">
                 <span className="asset-name" title={a.name}>
                   {a.name}
                 </span>
-                <span className="chip">{a.kind}</span>
+                <span className="chip">{kindLabel(a.kind)}</span>
               </div>
               <div className="asset-actions">
-                <button className="btn sm" onClick={() => copyUrl(a.url)} title="Copy URL">
-                  🔗
+                <button className="icon-btn" onClick={() => copyUrl(a.url)} title="Copiar URL">
+                  <Icon name="link" size={15} />
                 </button>
-                <button className="btn sm danger" onClick={() => remove(a.id)}>
-                  🗑️
+                <button className="icon-btn danger" onClick={() => remove(a.id)} title="Eliminar">
+                  <Icon name="trash" size={15} />
                 </button>
               </div>
             </div>
           ))}
-          {assets.length === 0 && <p className="muted">No assets uploaded yet.</p>}
+          {assets.length === 0 && <p className="muted">Todavía no has subido recursos.</p>}
         </div>
       </div>
     </div>
   );
+}
+
+function kindLabel(kind: string): string {
+  const map: Record<string, string> = {
+    image: 'Imagen',
+    map: 'Mapa',
+    token: 'Token',
+    audio: 'Audio',
+    doc: 'Documento',
+  };
+  return map[kind] || kind;
 }

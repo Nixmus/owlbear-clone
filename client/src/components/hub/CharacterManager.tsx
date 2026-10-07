@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type Character } from '../../api';
+import Icon from '../Icon';
 
 export default function CharacterManager({ campaignId }: { campaignId: string }) {
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -35,23 +36,23 @@ export default function CharacterManager({ campaignId }: { campaignId: string })
   return (
     <div className="hub-grid">
       <div className="hub-card">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h3>Characters & sheets</h3>
+        <div className="row spread">
+          <h3>Personajes y fichas</h3>
           <button className="btn sm primary" onClick={() => setCreating((v) => !v)}>
-            ➕ New
+            <Icon name="plus" size={14} /> Nuevo
           </button>
         </div>
 
         {creating && (
           <div className="create-row">
-            <input placeholder="Character name" value={name} onChange={(e) => setName(e.target.value)} />
+            <input placeholder="Nombre del personaje" value={name} onChange={(e) => setName(e.target.value)} />
             <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-              <option value="pc">PC</option>
-              <option value="npc">NPC</option>
-              <option value="monster">Monster</option>
+              <option value="pc">Personaje jugador</option>
+              <option value="npc">PNJ</option>
+              <option value="monster">Monstruo</option>
             </select>
             <button className="btn primary" onClick={create}>
-              Create
+              Crear
             </button>
           </div>
         )}
@@ -59,11 +60,11 @@ export default function CharacterManager({ campaignId }: { campaignId: string })
         <ul className="list">
           {characters.map((c) => (
             <li key={c.id} className={selected?.id === c.id ? 'active' : ''} onClick={() => setSelected(c)}>
-              <span className="kind-badge">{c.kind}</span>
+              <span className="kind-badge">{kindLabel(c.kind)}</span>
               <b>{c.name}</b>
             </li>
           ))}
-          {characters.length === 0 && <li className="muted">No characters yet.</li>}
+          {characters.length === 0 && <li className="muted">Todavía no hay personajes.</li>}
         </ul>
       </div>
 
@@ -136,31 +137,31 @@ function CharacterSheet({
 
   return (
     <div className="hub-card sheet">
-      <div className="row" style={{ justifyContent: 'space-between' }}>
+      <div className="row spread">
         <input className="sheet-name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn danger sm" onClick={remove}>
-          🗑️
+        <button className="icon-btn danger" title="Eliminar personaje" onClick={remove}>
+          <Icon name="trash" size={15} />
         </button>
       </div>
 
       <div className="row">
         <div className="field">
-          <label>Class</label>
+          <label>Clase</label>
           <input value={data.class || ''} onChange={(e) => set('class', e.target.value)} />
         </div>
         <div className="field">
-          <label>Race</label>
+          <label>Raza</label>
           <input value={data.race || ''} onChange={(e) => set('race', e.target.value)} />
         </div>
         <div className="field tight">
-          <label>Level</label>
+          <label>Nivel</label>
           <input type="number" value={data.level ?? 1} onChange={(e) => set('level', +e.target.value)} />
         </div>
       </div>
 
       <div className="row">
         <div className="field">
-          <label>HP current</label>
+          <label>PG actuales</label>
           <input
             type="number"
             value={data.hp?.current ?? 0}
@@ -168,20 +169,20 @@ function CharacterSheet({
           />
         </div>
         <div className="field">
-          <label>HP max</label>
+          <label>PG máximos</label>
           <input type="number" value={data.hp?.max ?? 0} onChange={(e) => set('hp.max', +e.target.value)} />
         </div>
         <div className="field tight">
-          <label>AC</label>
+          <label>CA</label>
           <input type="number" value={data.ac ?? 0} onChange={(e) => set('ac', +e.target.value)} />
         </div>
         <div className="field tight">
-          <label>Speed</label>
+          <label>Velocidad</label>
           <input type="number" value={data.speed ?? 0} onChange={(e) => set('speed', +e.target.value)} />
         </div>
       </div>
 
-      <label className="section-label">Attributes</label>
+      <label className="section-label">Atributos</label>
       <div className="attrs">
         {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((a) => (
           <div key={a} className="attr">
@@ -197,27 +198,46 @@ function CharacterSheet({
       </div>
 
       <div className="field">
-        <label>Skills</label>
+        <label>Habilidades</label>
         <textarea rows={2} value={data.skills || ''} onChange={(e) => set('skills', e.target.value)} />
       </div>
       <div className="field">
-        <label>Inventory</label>
+        <label>Inventario</label>
         <textarea rows={2} value={data.inventory || ''} onChange={(e) => set('inventory', e.target.value)} />
       </div>
       <div className="field">
-        <label>Spells</label>
+        <label>Conjuros</label>
         <textarea rows={2} value={data.spells || ''} onChange={(e) => set('spells', e.target.value)} />
       </div>
       <div className="field">
-        <label>Notes</label>
+        <label>Notas</label>
         <textarea rows={3} value={data.notes || ''} onChange={(e) => set('notes', e.target.value)} />
       </div>
 
       <button className="btn primary" onClick={save}>
-        {saved ? '✓ Saved' : 'Save sheet'}
+        {saved ? (
+          <>
+            <Icon name="check" size={14} /> Guardado
+          </>
+        ) : (
+          'Guardar ficha'
+        )}
       </button>
     </div>
   );
+}
+
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case 'pc':
+      return 'PJ';
+    case 'npc':
+      return 'PNJ';
+    case 'monster':
+      return 'Monstruo';
+    default:
+      return kind;
+  }
 }
 
 function modifier(score: number) {

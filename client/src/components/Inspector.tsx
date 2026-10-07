@@ -1,22 +1,13 @@
 import { useRef, useState } from 'react';
 import { nanoid } from '../util';
 import { useStore } from '../store';
-import { conditionIcon } from './Board';
+import Icon from './Icon';
+import { can, type Role } from '../permissions';
 import type { Token } from '../types';
 
 const COLORS = ['#60a5fa', '#f87171', '#4ade80', '#fbbf24', '#a78bfa', '#f472b6', '#34d399', '#fb923c'];
-const CONDITIONS = ['poisoned', 'prone', 'stunned', 'invisible', 'burning', 'blessed', 'dead', 'grappled'];
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-export default function Inspector({ selectedId }: { selectedId: string | null }) {
+export default function Inspector({ selectedId, role }: { selectedId: string | null; role: Role }) {
   const state = useStore((s) => s.state);
   const dispatch = useStore((s) => s.dispatch);
   const self = useStore((s) => s.self);
@@ -31,17 +22,19 @@ export default function Inspector({ selectedId }: { selectedId: string | null })
     return (
       <div className="panel">
         <div className="panel-head">
-          <span>🎲 Inspector</span>
+          <Icon name="select" size={14} />
+          <span>Ficha del token</span>
           <span className="grow" />
           <button onClick={() => setCollapsed((v) => !v)}>{collapsed ? '▾' : '▴'}</button>
         </div>
         {!collapsed && (
           <div className="panel-body">
-            <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0 }}>
-              Select a token to edit it. Use <b>➕ Add token</b> in the toolbar.
+            <p className="hint">
+              Selecciona un token en el mapa para editarlo. Para crear uno, usa el botón
+              <b> Añadir token</b> en la barra de herramientas.
             </p>
             <div className="field">
-              <label>Active scene</label>
+              <label>Escena activa</label>
               <div className="chip">{scene.name}</div>
             </div>
           </div>
@@ -50,18 +43,14 @@ export default function Inspector({ selectedId }: { selectedId: string | null })
     );
   }
 
-  const isGM = self.role === 'gm';
+  const isGM = can(role, 'token.deleteAny');
   const patch = (p: Partial<Token>) => dispatch({ kind: 'token.update', id: token.id, patch: p });
-
-  const toggleCondition = (c: string) => {
-    const has = token.conditions.includes(c);
-    patch({ conditions: has ? token.conditions.filter((x) => x !== c) : [...token.conditions, c] });
-  };
 
   return (
     <div className="panel">
       <div className="panel-head">
-        <span>🎲 Token</span>
+        <Icon name="user" size={14} />
+        <span>Token</span>
         <span className="grow" />
         <button onClick={() => setCollapsed((v) => !v)}>{collapsed ? '▾' : '▴'}</button>
       </div>
@@ -79,13 +68,18 @@ export default function Inspector({ selectedId }: { selectedId: string | null })
               }}
             />
             <div className="field" style={{ flex: 1 }}>
-              <label>Name</label>
-              <input type="text" value={token.name} onChange={(e) => patch({ name: e.target.value })} />
+              <label>Nombre</label>
+              <input
+                type="text"
+                value={token.name}
+                placeholder="Nombre del token"
+                onChange={(e) => patch({ name: e.target.value })}
+              />
             </div>
           </div>
 
           <div className="field">
-            <label>Size: {token.size.toFixed(2)} cells</label>
+            <label>Tamaño: {token.size.toFixed(2)} casillas</label>
             <input
               type="range"
               min={0.25}
@@ -112,11 +106,11 @@ export default function Inspector({ selectedId }: { selectedId: string | null })
 
           <div className="row">
             <button className="btn" onClick={() => fileRef.current?.click()}>
-              🖼️ Image
+              <Icon name="image" size={14} /> Imagen
             </button>
             {token.imageUrl && (
               <button className="btn danger" onClick={() => patch({ imageUrl: null })}>
-                Clear
+                Quitar imagen
               </button>
             )}
             <input
@@ -132,55 +126,59 @@ export default function Inspector({ selectedId }: { selectedId: string | null })
           </div>
 
           <div className="row">
-            <label className="row" style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+            <label className="row checklist" title="Los jugadores no verán este token">
               <input
                 type="checkbox"
                 checked={token.hidden}
                 onChange={(e) => patch({ hidden: e.target.checked })}
               />
-              Hidden from players
+              Oculto a jugadores
             </label>
-            <label className="row" style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+            <label className="row checklist" title="Evita moverlo por accidente">
               <input
                 type="checkbox"
                 checked={token.locked}
                 onChange={(e) => patch({ locked: e.target.checked })}
               />
-              Locked
+              Bloqueado
             </label>
           </div>
 
           <div className="field">
-            <label>Conditions</label>
+            <label>Estado / condiciones</label>
             <div className="swatches">
               {CONDITIONS.map((c) => (
                 <button
                   key={c}
-                  className={`chip ${token.conditions.includes(c) ? 'primary' : ''}`}
-                  style={{ cursor: 'pointer', background: token.conditions.includes(c) ? 'var(--accent)' : undefined }}
+                  className="chip toggle"
+                  style={{
+                    cursor: 'pointer',
+                    background: token.conditions.includes(c) ? 'var(--accent)' : undefined,
+                    color: token.conditions.includes(c) ? '#10131c' : undefined,
+                  }}
                   onClick={() => toggleCondition(c)}
-                  title={c}
                 >
-                  {conditionIcon(c)} {c}
+                  {c}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="field">
-            <label>Assign owner</label>
+            <label>Tipo de token</label>
             <select
-              value={token.owner || ''}
-              onChange={(e) => patch({ owner: e.target.value || null })}
+              value={token.owner ? 'owned' : 'npc'}
+              onChange={(e) => patch({ owner: e.target.value === 'owned' ? self.id : null })}
             >
-              <option value="">— none —</option>
-              <PlayerOptions />
+              <option value="owned">Personaje de jugador</option>
+              <option value="npc">PNJ / enemigo</option>
             </select>
           </div>
 
-          <div className="row">
+          <div className="row" style={{ marginTop: 4 }}>
             <button
               className="btn"
+              title="Duplica este token"
               onClick={() =>
                 dispatch({
                   kind: 'token.add',
@@ -193,14 +191,14 @@ export default function Inspector({ selectedId }: { selectedId: string | null })
                 })
               }
             >
-              ⧉ Duplicate
+              Duplicar
             </button>
             {isGM && (
               <button
                 className="btn danger"
                 onClick={() => dispatch({ kind: 'token.remove', id: token.id })}
               >
-                🗑️ Delete
+                <Icon name="trash" size={14} /> Eliminar
               </button>
             )}
           </div>
@@ -210,15 +208,11 @@ export default function Inspector({ selectedId }: { selectedId: string | null })
   );
 }
 
-function PlayerOptions() {
-  const players = useStore((s) => s.players);
-  return (
-    <>
-      {players.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.name}
-        </option>
-      ))}
-    </>
-  );
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }

@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import { useStore } from '../store';
 import { nanoid } from '../util';
+import Icon from './Icon';
+import { can, type Role } from '../permissions';
 import type { Scene } from '../types';
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -13,6 +15,7 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 interface Props {
+  role: Role;
   color: string;
   setColor: (c: string) => void;
   strokeWidth: number;
@@ -26,13 +29,12 @@ interface Props {
 export default function ScenePanel(props: Props) {
   const state = useStore((s) => s.state);
   const dispatch = useStore((s) => s.dispatch);
-  const self = useStore((s) => s.self);
   const mapInput = useRef<HTMLInputElement>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   const scene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
   if (!scene) return null;
-  const isGM = self.role === 'gm';
+  const canManage = can(props.role, 'scene.manage');
 
   const patch = (p: Partial<Scene>) => dispatch({ kind: 'scene.update', id: scene.id, patch: p });
 
@@ -49,7 +51,7 @@ export default function ScenePanel(props: Props) {
   const addScene = () => {
     const s: Scene = {
       id: nanoid(10),
-      name: `Scene ${state.scenes.length + 1}`,
+      name: `Escena ${state.scenes.length + 1}`,
       mapUrl: null,
       backgroundColor: '#2b2b33',
       gridType: 'square',
@@ -65,9 +67,12 @@ export default function ScenePanel(props: Props) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <span>🗺️ Scenes</span>
+        <Icon name="map" size={14} />
+        <span>Escenas</span>
         <span className="grow" />
-        <button onClick={() => setCollapsed((v) => !v)}>{collapsed ? '▾' : '▴'}</button>
+        <button onClick={() => setCollapsed((v) => !v)} title={collapsed ? 'Expandir' : 'Contraer'}>
+          {collapsed ? '▾' : '▴'}
+        </button>
       </div>
       {!collapsed && (
         <div className="panel-body">
@@ -76,6 +81,7 @@ export default function ScenePanel(props: Props) {
               key={s.id}
               className={`scene-item ${s.id === scene.id ? 'active' : ''}`}
               onClick={() => dispatch({ kind: 'scene.activate', id: s.id })}
+              title="Cambiar a esta escena"
             >
               {s.mapUrl ? (
                 <img className="scene-thumb" src={s.mapUrl} alt="" />
@@ -89,30 +95,35 @@ export default function ScenePanel(props: Props) {
               />
               {state.scenes.length > 1 && (
                 <button
-                  className="btn sm danger"
+                  className="icon-btn danger"
+                  title="Eliminar escena"
                   onClick={(e) => {
                     e.stopPropagation();
-                    dispatch({ kind: 'scene.remove', id: s.id });
+                    if (confirm(`¿Eliminar la escena "${s.name}"?`)) {
+                      dispatch({ kind: 'scene.remove', id: s.id });
+                    }
                   }}
                 >
-                  ✕
+                  <Icon name="close" size={14} />
                 </button>
               )}
             </div>
           ))}
           <button className="btn" onClick={addScene}>
-            ➕ New scene
+            <Icon name="plus" size={14} /> Nueva escena
           </button>
 
+          <div className="tool-divider" />
+
           <div className="field">
-            <label>Background map</label>
+            <label>Mapa de fondo</label>
             <div className="row">
               <button className="btn" onClick={() => mapInput.current?.click()}>
-                🖼️ Upload map
+                <Icon name="image" size={14} /> Subir mapa
               </button>
               {scene.mapUrl && (
                 <button className="btn danger" onClick={() => patch({ mapUrl: null })}>
-                  Remove
+                  Quitar
                 </button>
               )}
             </div>
@@ -123,22 +134,23 @@ export default function ScenePanel(props: Props) {
               style={{ display: 'none' }}
               onChange={(e) => onMap(e.target.files?.[0])}
             />
+            <span className="hint">Sube una imagen y se ajustará al tamaño automáticamente.</span>
           </div>
 
           <div className="row">
             <div className="field">
-              <label>Grid type</label>
+              <label>Tipo de rejilla</label>
               <select
                 value={scene.gridType}
                 onChange={(e) => patch({ gridType: e.target.value as Scene['gridType'] })}
               >
-                <option value="square">Square</option>
-                <option value="hex">Hex</option>
-                <option value="none">None</option>
+                <option value="square">Cuadrada</option>
+                <option value="hex">Hexagonal</option>
+                <option value="none">Sin rejilla</option>
               </select>
             </div>
             <div className="field">
-              <label>Grid size</label>
+              <label>Tamaño (px)</label>
               <input
                 type="number"
                 value={scene.gridSize}
@@ -151,7 +163,7 @@ export default function ScenePanel(props: Props) {
 
           <div className="row">
             <div className="field">
-              <label>Background</label>
+              <label>Color de fondo</label>
               <input
                 type="color"
                 value={scene.backgroundColor}
@@ -159,7 +171,7 @@ export default function ScenePanel(props: Props) {
               />
             </div>
             <div className="field">
-              <label>Grid color</label>
+              <label>Color de rejilla</label>
               <input
                 type="color"
                 value={rgbToHex(scene.gridColor)}
@@ -168,15 +180,16 @@ export default function ScenePanel(props: Props) {
             </div>
           </div>
 
-          {isGM && (
+          {canManage && (
             <>
               <div className="tool-divider" />
+              <div className="section-label">Herramientas de dibujo y niebla</div>
               <div className="field">
-                <label>Drawing color</label>
+                <label>Color de dibujo</label>
                 <input type="color" value={props.color} onChange={(e) => props.setColor(e.target.value)} />
               </div>
               <div className="field">
-                <label>Stroke width: {props.strokeWidth}px</label>
+                <label>Grosor de línea: {props.strokeWidth}px</label>
                 <input
                   type="range"
                   min={1}
@@ -186,7 +199,7 @@ export default function ScenePanel(props: Props) {
                 />
               </div>
               <div className="field">
-                <label>Fog brush size: {props.brushSize}px</label>
+                <label>Tamaño del pincel de niebla: {props.brushSize}px</label>
                 <input
                   type="range"
                   min={10}
@@ -195,13 +208,13 @@ export default function ScenePanel(props: Props) {
                   onChange={(e) => props.setBrushSize(+e.target.value)}
                 />
               </div>
-              <label className="row" style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+              <label className="row checklist">
                 <input
                   type="checkbox"
                   checked={props.fogOccludes}
                   onChange={(e) => props.setFogOccludes(e.target.checked)}
                 />
-                Total blackout (occlude fully)
+                Niebla totalmente opaca
               </label>
             </>
           )}

@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { api, type GameSession } from '../../api';
+import Icon from '../Icon';
+
+interface ChatLine {
+  author: string;
+  color?: string;
+  text: string;
+}
 
 export default function SessionHistory({ campaignId }: { campaignId: string }) {
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
   const [selected, setSelected] = useState<GameSession | null>(null);
-  const [record, setRecord] = useState<{ chat?: unknown[]; scenes?: unknown[] }>({});
+  const [record, setRecord] = useState<{ chat?: ChatLine[] }>({});
 
   useEffect(() => {
     load();
@@ -38,55 +45,68 @@ export default function SessionHistory({ campaignId }: { campaignId: string }) {
     load();
   }
 
+  const chat = Array.isArray(record.chat) ? record.chat : [];
+
   return (
     <div className="hub-grid">
       <div className="hub-card">
-        <h3>Session history</h3>
+        <h3>Historial de partidas</h3>
+        <p className="muted">
+          Registra cada sesión para llevar la crónica. El chat de la mesa se guarda automáticamente
+          mientras la sesión esté abierta.
+        </p>
         <div className="create-row">
-          <input placeholder="Session name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            placeholder="Nombre de la sesión (opcional)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
           <button className="btn primary" onClick={create}>
-            ➕ Log session
+            <Icon name="plus" size={14} /> Registrar sesión
           </button>
         </div>
         <div className="field">
-          <label>Notes</label>
-          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <label>Notas de la sesión</label>
+          <textarea
+            rows={2}
+            placeholder="Qué pasó, decisiones, pendientes…"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
         </div>
 
         <ul className="list">
           {sessions.map((s) => (
-            <li key={s.id} onClick={() => open(s)}>
+            <li key={s.id} className={selected?.id === s.id ? 'active' : ''} onClick={() => open(s)}>
               <b>{s.name}</b>
               <span className="muted">{new Date(s.startedAt).toLocaleString()}</span>
-              {s.endedAt ? <span className="chip ok">ended</span> : <span className="chip warn">open</span>}
+              {s.endedAt ? <span className="chip ok">cerrada</span> : <span className="chip warn">abierta</span>}
             </li>
           ))}
-          {sessions.length === 0 && <li className="muted">No sessions logged yet.</li>}
+          {sessions.length === 0 && <li className="muted">Todavía no hay sesiones registradas.</li>}
         </ul>
       </div>
 
       {selected && (
         <div className="hub-card">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
+          <div className="row spread">
             <h3>{selected.name}</h3>
             {!selected.endedAt && (
               <button className="btn sm" onClick={endSession}>
-                ⏹ End session
+                Cerrar sesión
               </button>
             )}
           </div>
-          <p className="muted">{selected.notes || 'No notes.'}</p>
+          <p className="muted">{selected.notes || 'Sin notas.'}</p>
           <div className="field">
-            <label>Chat log ({Array.isArray(record.chat) ? record.chat.length : 0} messages)</label>
+            <label>Registro de chat ({chat.length} mensajes)</label>
             <div className="record-box">
-              {(Array.isArray(record.chat) ? (record.chat as any[]) : []).slice(-50).map((m, i) => (
+              {chat.slice(-50).map((m, i) => (
                 <div key={i} className="record-line">
                   <b style={{ color: m.color }}>{m.author}:</b> {m.text}
                 </div>
               ))}
-              {(!Array.isArray(record.chat) || record.chat.length === 0) && (
-                <span className="muted">No recorded chat for this session.</span>
-              )}
+              {chat.length === 0 && <span className="muted">Sin chat registrado en esta sesión.</span>}
             </div>
           </div>
         </div>
