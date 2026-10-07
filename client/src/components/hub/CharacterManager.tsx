@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type Character } from '../../api';
 
-interface Props {
-  campaignId: string;
-}
-
 export default function CharacterManager({ campaignId }: { campaignId: string }) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selected, setSelected] = useState<Character | null>(null);

@@ -5,3 +5,9 @@ server/data/
 .env
 *.log
 .DS_Store
+
+# Never commit secrets / SSH keys
+claves/
+*.key
+*.pem
+*.pub
