@@ -1,0 +1,19 @@
+{
+  "name": "Owlbear Clone (VTT)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "forwardPorts": [4000],
+  "portsAttributes": {
+    "4000": {
+      "label": "Owlbear (app + WS)",
+      "onAutoForward": "notify",
+      "visibility": "public"
+    }
+  },
+  "postCreateCommand": "npm run install:all && npm run build",
+  "postStartCommand": "bash .devcontainer/start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}
