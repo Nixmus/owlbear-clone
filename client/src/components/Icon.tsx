@@ -88,6 +88,8 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   folder: <path d="M3 7a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
+  up: <path d="M12 19V5M5 12l7-7 7 7" />,
+  down: <path d="M12 5v14M5 12l7 7 7-7" />,,
   folderOpen: (
     <path d="M3 7a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v1H3zM3 10h18l-2 8a2 2 0 0 1-2 1.6H6.2A2 2 0 0 1 4.3 18z" />
   ),

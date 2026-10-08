@@ -1303,9 +1303,61 @@ textarea {
 }
 .tpl-row {
   display: grid;
-  grid-template-columns: minmax(70px, 1fr) minmax(90px, 1.4fr) 110px auto auto;
+  grid-template-columns: 18px minmax(70px, 1fr) minmax(90px, 1.4fr) 110px auto auto auto;
   gap: 6px;
   align-items: center;
+  padding: 3px;
+  border-radius: 7px;
+}
+.tpl-row.dragging {
+  opacity: 0.4;
+}
+.tpl-row.drag-over {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: 1px dashed var(--accent);
+}
+.tpl-handle {
+  cursor: grab;
+  color: var(--text-dim);
+  text-align: center;
+  user-select: none;
+  line-height: 1;
+}
+.tpl-reorder {
+  display: flex;
+  gap: 2px;
+}
+.tpl-reorder .icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+/* Invalid input is flagged in place, so the reason is visible while typing. */
+.tpl-row input.invalid {
+  border-color: var(--danger);
+}
+.tpl-problems {
+  margin: 0;
+  padding: 8px 10px 8px 26px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--text);
+  font-size: 12px;
+}
+.tpl-saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ok);
+}
+.tpl-dirty {
+  color: var(--warn);
+}
+.tpl-hint-dirty {
+  font-size: 12px;
+  color: var(--warn);
 }
 .tpl-row input[type='text'],
 .tpl-row input:not([type]),
@@ -1350,11 +1402,22 @@ textarea {
 }
 
 @media (max-width: 820px) {
+  /* Stack each field row: two columns per line, reorder controls full width. */
   .tpl-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 18px 1fr 1fr;
+  }
+  .tpl-row select {
+    grid-column: 2 / -1;
   }
   .tpl-row .tpl-check {
-    grid-column: span 2;
+    grid-column: 2 / -1;
+  }
+  .tpl-reorder {
+    grid-column: 2 / -1;
+  }
+  .tpl-row .icon-btn.danger {
+    grid-column: 1;
+    grid-row: 1;
   }
 }
 

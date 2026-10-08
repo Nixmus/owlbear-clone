@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, type SheetField, type SheetTemplate, type Visibility } from '../../api';
 import Icon from '../Icon';
 import VisibilityToggle from '../VisibilityToggle';
@@ -15,6 +15,8 @@ const KEY_RE = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$/;
 function blankField(): SheetField {
   return { key: '', label: '', type: 'text' };
 }
+
+type DragIndex = number | null;
 
 /**
  * Lets a GM describe a character sheet so the group can play a different
@@ -38,33 +40,61 @@ export default function SheetTemplateEditor({
   const [attributes, setAttributes] = useState('');
   const [editingVisibility, setEditingVisibility] = useState<Visibility>('public');
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  // Which row is being dragged, and which one it would land on.
+  const [dragIndex, setDragIndex] = useState<DragIndex>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<DragIndex>(null);
 
   const attrList = attributes
     .split(/[\s,]+/)
     .map((a) => a.trim())
     .filter(Boolean);
 
+  // Collect every problem so they can all be shown at once, instead of a
+  // disabled save button that never explains itself.
   const problems: string[] = [];
-  if (!name.trim()) problems.push('Falta el nombre de la plantilla.');
-  const keys = new Set<string>();
-  for (const f of fields) {
-    if (!f.key.trim() && !f.label.trim()) continue; // untouched empty row
-    if (!KEY_RE.test(f.key.trim())) {
-      problems.push(`Clave inválida: “${f.key}”. Empieza por letra y usa letras, números o _ (puedes anidar con punto).`);
+  if (!name.trim()) problems.push('Ponle un nombre a la plantilla.');
+  const seen = new Set<string>();
+  fields.forEach((f) => {
+    if (!f.key.trim() && !f.label.trim()) return; // untouched empty row
+    const key = f.key.trim();
+    if (!KEY_RE.test(key)) {
+      problems.push(`La clave “${f.key || '(vacía)'}” no es válida: empieza por letra y usa letras, números o _.`);
     }
-    if (keys.has(f.key.trim())) problems.push(`Clave repetida: “${f.key}”.`);
-    keys.add(f.key.trim());
-    if (!f.label.trim()) problems.push(`El campo “${f.key || '?'}” necesita una etiqueta.`);
+    if (seen.has(key)) problems.push(`La clave “${key}” está repetida.`);
+    seen.add(key);
+    if (!f.label.trim()) {
+      problems.push(`El campo con clave “${key || '(vacía)'}” necesita una etiqueta visible.`);
+    }
+  });
+
+  // Any edit marks the form dirty; reset() clears it after save/load/cancel.
+  function touch() {
+    setDirty(true);
+    setSaved(false);
   }
 
   function loadTemplate(t: SheetTemplate) {
+    if (dirty && !confirm('Hay cambios sin guardar. ¿Descartarlos y abrir esta plantilla?')) {
+      return;
+    }
     setEditingId(t.id);
     setName(t.name);
     setFields(t.schema.fields?.length ? t.schema.fields.map((f) => ({ ...f })) : [blankField()]);
     setAttributes((t.schema.attributes || []).join(', '));
     setEditingVisibility(t.visibility || 'public');
     setError('');
+    setDirty(false);
+    setSaved(false);
+  }
+
+  function startNew() {
+    if (dirty && !confirm('Hay cambios sin guardar. ¿Descartarlos y empezar una plantilla nueva?')) {
+      return;
+    }
+    reset();
   }
 
   function reset() {
@@ -74,6 +104,8 @@ export default function SheetTemplateEditor({
     setAttributes('');
     setEditingVisibility('public');
     setError('');
+    setDirty(false);
+    setSaved(false);
   }
 
   async function save() {
@@ -93,21 +125,17 @@ export default function SheetTemplateEditor({
           width: f.width === 'tight' ? 'tight' : undefined,
         }));
       const schema = { fields: clean, attributes: attrList.map((a) => a.toUpperCase()) };
+      const payload = { name: name.trim(), schema, visibility: editingVisibility };
 
       if (editingId) {
-        await api.patch(`/templates/${editingId}`, {
-          name: name.trim(),
-          schema,
-          visibility: editingVisibility,
-        });
+        await api.patch(`/templates/${editingId}`, payload);
       } else {
-        await api.post(`/campaigns/${campaignId}/templates`, {
-          name: name.trim(),
-          schema,
-          visibility: editingVisibility,
-        });
+        await api.post(`/campaigns/${campaignId}/templates`, payload);
       }
+      // Clear the form and confirm clearly. Keeping the saved template loaded
+      // would make "Guardar" ambiguous about what it is saving.
       reset();
+      setSaved(true);
       onChanged();
     } catch (e) {
       setError((e as Error).message);
@@ -129,7 +157,12 @@ export default function SheetTemplateEditor({
   }
 
   async function remove(t: SheetTemplate) {
-    if (!confirm(`¿Eliminar la plantilla “${t.name}”? Las fichas que la usan volverán a la ficha básica.`)) return;
+    if (
+      !confirm(
+        `¿Eliminar la plantilla “${t.name}”? Las fichas que la usan volverán a la ficha básica.`,
+      )
+    )
+      return;
     setError('');
     try {
       await api.del(`/templates/${t.id}`);
@@ -142,7 +175,38 @@ export default function SheetTemplateEditor({
 
   function updateField(i: number, patch: Partial<SheetField>) {
     setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
+    touch();
   }
+
+  function moveField(from: number, to: number) {
+    setFields((prev) => {
+      if (to < 0 || to >= prev.length || from === to) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+    touch();
+  }
+
+  function removeField(i: number) {
+    setFields((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [blankField()]));
+    touch();
+  }
+
+  function addField() {
+    setFields((prev) => [...prev, blankField()]);
+    touch();
+  }
+
+  // Escape closes, but not while a confirm/alert is up or while typing a value.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
     <div className="tpl-editor">
@@ -153,18 +217,36 @@ export default function SheetTemplateEditor({
         </button>
       </div>
       <p className="muted" style={{ margin: 0 }}>
-        Describe la ficha de tu sistema: cada campo con su clave, su etiqueta y su tipo. Los jugadores
-        ven exactamente estos campos. Déjalo vacío si prefieres la ficha básica de D&amp;D.
+        Describe la ficha de tu sistema. Cada fila es un campo: la <b>clave</b> es donde se guarda
+        el dato, la <b>etiqueta</b> es lo que ve el jugador. Usa las flechas o arrastra para
+        reordenar.
       </p>
 
-      {templates.length > 0 && (
+      {/* ---- existing templates ---- */}
+      <div className="row spread">
+        <label className="section-label" style={{ margin: 0 }}>
+          {editingId ? 'Editando' : 'Tus plantillas'}
+        </label>
+        <button className="btn sm" onClick={startNew}>
+          <Icon name="plus" size={13} /> Nueva
+        </button>
+      </div>
+
+      {templates.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>
+          Todavía no has creado ninguna. Rellena el formulario de abajo y pulsa Crear.
+        </p>
+      ) : (
         <ul className="list">
           {templates.map((t) => (
             <li key={t.id} className={editingId === t.id ? 'active' : ''}>
-              <button className="tpl-pick" onClick={() => loadTemplate(t)}>
+              <button
+                className="tpl-pick"
+                onClick={() => (editingId === t.id ? reset() : loadTemplate(t))}
+              >
                 <b>{t.name}</b>
                 <span className="muted">
-                  {t.schema.fields?.length || 0} campos
+                  {editingId === t.id ? 'Cerrar edición' : `${t.schema.fields?.length || 0} campos`}
                   {t.visibility === 'private' ? ' · privada' : ''}
                 </span>
               </button>
@@ -181,74 +263,135 @@ export default function SheetTemplateEditor({
         </ul>
       )}
 
+      {/* ---- editor form ---- */}
       <div className="field">
         <label>Nombre de la plantilla</label>
         <input
           value={name}
           placeholder="p. ej. Call of Cthulhu 7e"
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            touch();
+          }}
         />
       </div>
 
-      <label className="section-label">Campos de la ficha</label>
-      <div className="tpl-rows">
-        {fields.map((f, i) => (
-          <div className="tpl-row" key={i}>
-            <input
-              value={f.key}
-              placeholder="clave"
-              aria-label="Clave del campo"
-              onChange={(e) => updateField(i, { key: e.target.value })}
-            />
-            <input
-              value={f.label}
-              placeholder="Etiqueta"
-              aria-label="Etiqueta del campo"
-              onChange={(e) => updateField(i, { label: e.target.value })}
-            />
-            <select
-              value={f.type}
-              aria-label="Tipo del campo"
-              onChange={(e) => updateField(i, { type: e.target.value as SheetField['type'] })}
-            >
-              {TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-            <label className="tpl-check" title="Campo estrecho">
-              <input
-                type="checkbox"
-                checked={f.width === 'tight'}
-                onChange={(e) => updateField(i, { width: e.target.checked ? 'tight' : undefined })}
-              />
-              <span>Estrecho</span>
-            </label>
-            <button
-              className="icon-btn danger"
-              title="Quitar campo"
-              onClick={() => setFields((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [blankField()]))}
-            >
-              <Icon name="trash" size={14} />
-            </button>
-          </div>
-        ))}
+      <div className="row spread">
+        <label className="section-label" style={{ margin: 0 }}>
+          Campos de la ficha
+        </label>
+        <button className="btn sm" onClick={addField}>
+          <Icon name="plus" size={13} /> Añadir campo
+        </button>
       </div>
-      <button className="btn" onClick={() => setFields((prev) => [...prev, blankField()])}>
-        <Icon name="plus" size={14} /> Añadir campo
-      </button>
+
+      <div className="tpl-rows">
+        {fields.map((f, i) => {
+          const keyInvalid = !!f.key.trim() && !KEY_RE.test(f.key.trim());
+          const keyDup = !!f.key.trim() && fields.filter((o) => o.key.trim() === f.key.trim()).length > 1;
+          const labelMissing = !!f.key.trim() && !f.label.trim();
+          return (
+            <div
+              className={`tpl-row ${dragOverIndex === i ? 'drag-over' : ''} ${
+                dragIndex === i ? 'dragging' : ''
+              }`}
+              key={i}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragIndex !== null && dragIndex !== i) setDragOverIndex(i);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIndex !== null) moveField(dragIndex, i);
+                setDragIndex(null);
+                setDragOverIndex(null);
+              }}
+              onDragEnd={() => {
+                setDragIndex(null);
+                setDragOverIndex(null);
+              }}
+            >
+              <span className="tpl-handle" title="Arrastra para reordenar">
+                ⠿
+              </span>
+              <input
+                value={f.key}
+                placeholder="clave"
+                aria-label="Clave del campo"
+                className={keyInvalid || keyDup ? 'invalid' : ''}
+                title={keyDup ? 'Clave repetida' : keyInvalid ? 'Clave no válida' : 'Donde se guarda el dato'}
+                onChange={(e) => updateField(i, { key: e.target.value })}
+              />
+              <input
+                value={f.label}
+                placeholder="Etiqueta"
+                aria-label="Etiqueta del campo"
+                className={labelMissing ? 'invalid' : ''}
+                title={labelMissing ? 'Falta la etiqueta' : 'Lo que ve el jugador'}
+                onChange={(e) => updateField(i, { label: e.target.value })}
+              />
+              <select
+                value={f.type}
+                aria-label="Tipo del campo"
+                onChange={(e) => updateField(i, { type: e.target.value as SheetField['type'] })}
+              >
+                {TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <label className="tpl-check" title="Campo estrecho">
+                <input
+                  type="checkbox"
+                  checked={f.width === 'tight'}
+                  onChange={(e) => updateField(i, { width: e.target.checked ? 'tight' : undefined })}
+                />
+                <span>Estrecho</span>
+              </label>
+              <div className="tpl-reorder">
+                <button
+                  className="icon-btn"
+                  title="Subir"
+                  aria-label={`Subir campo ${f.label || f.key || i + 1}`}
+                  disabled={i === 0}
+                  onClick={() => moveField(i, i - 1)}
+                >
+                  <Icon name="up" size={13} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Bajar"
+                  aria-label={`Bajar campo ${f.label || f.key || i + 1}`}
+                  disabled={i === fields.length - 1}
+                  onClick={() => moveField(i, i + 1)}
+                >
+                  <Icon name="down" size={13} />
+                </button>
+              </div>
+              <button className="icon-btn danger" title="Quitar campo" onClick={() => removeField(i)}>
+                <Icon name="trash" size={14} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
 
       <div className="field">
         <label>Atributos (separados por comas, opcional)</label>
         <input
           value={attributes}
           placeholder="str, dex, con, int, wis, cha"
-          onChange={(e) => setAttributes(e.target.value)}
+          onChange={(e) => {
+            setAttributes(e.target.value);
+            touch();
+          }}
         />
         <span className="hint">
-          Si los rellenas, la ficha muestra el bloque de atributos con su modificador. Para un sistema
-          sin atributos, déjalo vacío.
+          Si los rellenas, la ficha muestra el bloque de atributos con su modificador. Para un
+          sistema sin atributos, déjalo vacío.
         </span>
       </div>
 
@@ -256,7 +399,10 @@ export default function SheetTemplateEditor({
         <label>Visibilidad de la plantilla</label>
         <VisibilityToggle
           value={editingVisibility}
-          onChange={(next) => setEditingVisibility(next)}
+          onChange={(next) => {
+            setEditingVisibility(next);
+            touch();
+          }}
           label="Visibilidad de la plantilla"
         />
         <span className="hint">
@@ -266,17 +412,35 @@ export default function SheetTemplateEditor({
         </span>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {/* ---- problems, always visible ---- */}
+      {problems.length > 0 && (
+        <ul className="tpl-problems">
+          {problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
 
+      {error && <p className="error">{error}</p>}
+      {saved && (
+        <p className="tpl-saved">
+          <Icon name="check" size={13} /> Guardado.
+        </p>
+      )}
+
+      {/* ---- save bar ---- */}
       <div className="row">
         <button className="btn primary" onClick={save} disabled={busy || problems.length > 0}>
-          <Icon name="check" size={14} /> {editingId ? 'Guardar cambios' : 'Crear plantilla'}
+          <Icon name="check" size={14} />{' '}
+          {editingId ? 'Guardar cambios' : 'Crear plantilla'}
+          {dirty && <span className="tpl-dirty"> •</span>}
         </button>
         {editingId && (
           <button className="btn" onClick={reset}>
             Cancelar
           </button>
         )}
+        {dirty && <span className="muted tpl-hint-dirty">Cambios sin guardar</span>}
       </div>
     </div>
   );
