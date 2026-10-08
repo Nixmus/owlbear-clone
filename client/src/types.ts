@@ -68,6 +68,8 @@ export interface FogShape {
   points: number[]; // flattened polygon, [x1,y1,x2,y2] as a bounding box
   /** Brush stamps are drawn as circles; older shapes stay rectangular. */
   round?: boolean;
+  /** 0..1 fog density. SVG masks are luminance based, so this dims the fog. */
+  opacity?: number;
 }
 
 export interface ChatMessage {
@@ -146,6 +148,10 @@ export type Tool =
   | 'ruler'
   | 'fog-reveal'
   | 'fog-hide'
+  | 'fog-rect-reveal'
+  | 'fog-rect-hide'
+  | 'fog-circle-reveal'
+  | 'fog-circle-hide'
   | 'pen'
   | 'line'
   | 'rect'

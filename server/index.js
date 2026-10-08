@@ -274,6 +274,9 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
           mode: s.mode,
           points: s.points.map(Number),
           round: !!s.round,
+          opacity: Number.isFinite(Number(s.opacity))
+            ? Math.min(1, Math.max(0, Number(s.opacity)))
+            : 1,
         });
         added = true;
       }

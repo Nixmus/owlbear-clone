@@ -14,6 +14,8 @@ interface Props {
   onClearFog: () => void;
   onAddToken: () => void;
   onManageUsers: () => void;
+  gmPeek: boolean;
+  onTogglePeek: () => void;
 }
 
 const TOOLS: { id: Tool; icon: IconName; tip: string }[] = [
@@ -32,8 +34,12 @@ const DRAW: { id: Tool; icon: IconName; tip: string }[] = [
 ];
 
 const FOG: { id: Tool; icon: IconName; tip: string }[] = [
-  { id: 'fog-reveal', icon: 'reveal', tip: 'Revelar niebla' },
-  { id: 'fog-hide', icon: 'fog', tip: 'Cubrir con niebla' },
+  { id: 'fog-reveal', icon: 'reveal', tip: 'Revelar con pincel' },
+  { id: 'fog-rect-reveal', icon: 'rect', tip: 'Revelar rectángulo' },
+  { id: 'fog-circle-reveal', icon: 'circle', tip: 'Revelar círculo' },
+  { id: 'fog-hide', icon: 'fog', tip: 'Cubrir con pincel' },
+  { id: 'fog-rect-hide', icon: 'rect', tip: 'Cubrir rectángulo' },
+  { id: 'fog-circle-hide', icon: 'circle', tip: 'Cubrir círculo' },
 ];
 
 export default function ToolRail({
@@ -48,6 +54,8 @@ export default function ToolRail({
   onClearFog,
   onAddToken,
   onManageUsers,
+  gmPeek,
+  onTogglePeek,
 }: Props) {
   const Btn = ({ id, icon, tip }: { id: Tool; icon: IconName; tip: string }) => (
     <button
@@ -85,6 +93,15 @@ export default function ToolRail({
           {FOG.map((t) => (
             <Btn key={t.id} {...t} />
           ))}
+          <button
+            className={`tool ${gmPeek ? 'active' : ''}`}
+            data-tip={gmPeek ? 'Ver a través de la niebla: ACTIVADO' : 'Ver a través de la niebla'}
+            title="Ver el mapa bajo la niebla sin quitarla (solo tú)"
+            aria-pressed={gmPeek}
+            onClick={onTogglePeek}
+          >
+            <Icon name="eye" />
+          </button>
         </>
       )}
       <div className="tool-divider" />

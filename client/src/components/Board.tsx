@@ -17,6 +17,7 @@ interface Props {
   fogOccludes: boolean;
   brushSize: number;
   gmFogTransparent: boolean;
+  fogOpacity: number;
   fillEnabled: boolean;
   fillColor: string;
   fillOpacity: number;
@@ -28,6 +29,13 @@ type Drag =
   | { type: 'resize'; id: string; startSize: number; startX: number; startY: number }
   | { type: 'draw'; points: number[] }
   | { type: 'fog'; mode: 'reveal' | 'hide'; stamps: number[]; last: Vec }
+  | {
+      type: 'fog-shape';
+      mode: 'reveal' | 'hide';
+      round: boolean;
+      start: Vec;
+      current: Vec;
+    }
   | { type: 'ruler'; start: Vec; current: Vec }
   | { type: 'erase'; points: number[] }
   | { type: 'marquee' }
@@ -40,6 +48,7 @@ export default function Board({
   fogOccludes,
   brushSize,
   gmFogTransparent,
+  fogOpacity,
   fillEnabled,
   fillColor,
   fillOpacity,
@@ -86,6 +95,12 @@ export default function Board({
   const [draftPoints, setDraftPoints] = useState<number[] | null>(null);
   const [draftErase, setDraftErase] = useState<number[] | null>(null);
   const [draftFog, setDraftFog] = useState<{ mode: 'reveal' | 'hide'; points: number[] } | null>(null);
+  const [draftShape, setDraftShape] = useState<{
+    mode: 'reveal' | 'hide';
+    round: boolean;
+    a: Vec;
+    b: Vec;
+  } | null>(null);
   const [ruler, setRuler] = useState<{ a: Vec; b: Vec } | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
   const [showMap, setShowMap] = useState(true);
@@ -273,6 +288,18 @@ export default function Board({
         setDraftFog({ mode, points: [w.x, w.y, w.x, w.y] });
         break;
       }
+      case 'fog-rect-reveal':
+      case 'fog-rect-hide':
+      case 'fog-circle-reveal':
+      case 'fog-circle-hide': {
+        if (!can(role, 'fog.edit')) break;
+        // Shapes are one rectangle / circle covering the whole drag.
+        const mode = tool.endsWith('-reveal') ? 'reveal' : 'hide';
+        const round = tool.startsWith('fog-circle');
+        setDrag({ type: 'fog-shape', mode, round, start: w, current: w });
+        setDraftShape({ mode, round, a: w, b: w });
+        break;
+      }
       case 'pen':
       case 'line':
       case 'rect':
@@ -387,6 +414,10 @@ export default function Board({
         setDraftFog({ mode: drag.mode, points: stamps });
         break;
       }
+      case 'fog-shape':
+        setDrag({ ...drag, current: w });
+        setDraftShape({ mode: drag.mode, round: drag.round, a: drag.start, b: w });
+        break;
       case 'ruler':
         setDrag({ ...drag, current: w });
         setRuler({ a: drag.start, b: w });
@@ -451,9 +482,29 @@ export default function Board({
             mode: draftFog.mode,
             points: [x - r, y - r, x + r, y + r],
             round: true,
+            opacity: fogOpacity,
           });
         }
         if (shapes.length) dispatch({ kind: 'fog.addMany', shapes });
+        break;
+      }
+      case 'fog-shape': {
+        if (!draftShape) break;
+        const x = Math.min(draftShape.a.x, draftShape.b.x);
+        const y = Math.min(draftShape.a.y, draftShape.b.y);
+        const w = Math.abs(draftShape.b.x - draftShape.a.x);
+        const h = Math.abs(draftShape.b.y - draftShape.a.y);
+        dispatch({
+          kind: 'fog.add',
+          shape: {
+            id: nanoid(),
+            sceneId: scene.id,
+            mode: draftShape.mode,
+            points: [x, y, x + w, y + h],
+            round: draftShape.round,
+            opacity: fogOpacity,
+          },
+        });
         break;
       }
       case 'erase': {
@@ -476,6 +527,7 @@ export default function Board({
     setDrag(null);
     setDraftPoints(null);
     setDraftFog(null);
+    setDraftShape(null);
     setDraftErase(null);
     void e;
   }
@@ -681,6 +733,8 @@ export default function Board({
             shapes={sceneFog}
             draft={draftFog}
             draftRadius={brushSize}
+            draftShape={draftShape}
+            draftOpacity={fogOpacity}
             fogOccludes={fogOccludes}
             seeThrough={isGM && gmFogTransparent}
           />
@@ -1013,6 +1067,8 @@ function FogLayer({
   shapes,
   draft,
   draftRadius: draftRadiusProp,
+  draftShape,
+  draftOpacity,
   fogOccludes,
   seeThrough,
 }: {
@@ -1020,6 +1076,8 @@ function FogLayer({
   shapes: FogShape[];
   draft: { mode: 'reveal' | 'hide'; points: number[] } | null;
   draftRadius: number;
+  draftShape: { mode: 'reveal' | 'hide'; round: boolean; a: Vec; b: Vec } | null;
+  draftOpacity: number;
   fogOccludes: boolean;
   seeThrough?: boolean;
 }) {
@@ -1037,31 +1095,32 @@ function FogLayer({
       <defs>
         <mask id={id} maskUnits="userSpaceOnUse" x={0} y={0} width={scene.width} height={scene.height}>
           <rect x={0} y={0} width={scene.width} height={scene.height} fill="white" />
-          {rects.map((s) =>
-            s.mode === 'reveal' ? (
-              s.round ? (
-                <circle
-                  key={s.id}
-                  cx={(s.r!.x + s.r!.x + s.r!.w) / 2}
-                  cy={s.r!.y + s.r!.h / 2}
-                  r={s.r!.w / 2}
-                  fill="black"
-                />
-              ) : (
-                <rect key={s.id} x={s.r!.x} y={s.r!.y} width={s.r!.w} height={s.r!.h} fill="black" />
-              )
-            ) : s.round ? (
+          {rects.map((s) => {
+            const tone = s.mode === 'reveal' ? 'black' : 'white';
+            // The mask is luminance based, so this dims the fog where it
+            // overlaps. A 'hide' stamp at 0.5 leaves the map half visible.
+            const op = s.opacity ?? 1;
+            return s.round ? (
               <circle
                 key={s.id}
                 cx={s.r!.x + s.r!.w / 2}
                 cy={s.r!.y + s.r!.h / 2}
                 r={s.r!.w / 2}
-                fill="white"
+                fill={tone}
+                fillOpacity={op}
               />
             ) : (
-              <rect key={s.id} x={s.r!.x} y={s.r!.y} width={s.r!.w} height={s.r!.h} fill="white" />
-            ),
-          )}
+              <rect
+                key={s.id}
+                x={s.r!.x}
+                y={s.r!.y}
+                width={s.r!.w}
+                height={s.r!.h}
+                fill={tone}
+                fillOpacity={op}
+              />
+            );
+          })}
           {(() => {
             const pts = draft?.points || [];
             const circles: JSX.Element[] = [];
@@ -1077,6 +1136,34 @@ function FogLayer({
               );
             }
             return circles;
+          })()}
+          {(() => {
+            if (!draftShape) return null;
+            const x = Math.min(draftShape.a.x, draftShape.b.x);
+            const y = Math.min(draftShape.a.y, draftShape.b.y);
+            const w = Math.abs(draftShape.b.x - draftShape.a.x);
+            const h = Math.abs(draftShape.b.y - draftShape.a.y);
+            const tone = draftShape.mode === 'reveal' ? 'black' : 'white';
+            return draftShape.round ? (
+              <circle
+                key="draft-shape"
+                cx={x + w / 2}
+                cy={y + h / 2}
+                r={Math.min(w, h) / 2}
+                fill={tone}
+                fillOpacity={draftOpacity}
+              />
+            ) : (
+              <rect
+                key="draft-shape"
+                x={x}
+                y={y}
+                width={w}
+                height={h}
+                fill={tone}
+                fillOpacity={draftOpacity}
+              />
+            );
           })()}
         </mask>
       </defs>

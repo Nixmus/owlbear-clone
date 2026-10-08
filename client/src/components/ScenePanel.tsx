@@ -26,6 +26,8 @@ interface Props {
   setFogOccludes: (b: boolean) => void;
   gmFogTransparent: boolean;
   setGmFogTransparent: (b: boolean) => void;
+  fogOpacity: number;
+  setFogOpacity: (n: number) => void;
   fillEnabled: boolean;
   setFillEnabled: (b: boolean) => void;
   fillColor: string;
@@ -276,6 +278,21 @@ export default function ScenePanel(props: Props) {
                   </div>
                 </>
               )}
+              <div className="field">
+                <label>Densidad de la niebla nueva: {Math.round(props.fogOpacity * 100)}%</label>
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  value={Math.round(props.fogOpacity * 100)}
+                  onChange={(e) => props.setFogOpacity(+e.target.value / 100)}
+                />
+                <span className="hint">
+                  Se aplica a la niebla que pintes a partir de ahora, tanto con pincel como con
+                  rectángulo o círculo.
+                </span>
+              </div>
+
               <div className="field">
                 <label>Tamaño del pincel de niebla: {props.brushSize}px</label>
                 <input

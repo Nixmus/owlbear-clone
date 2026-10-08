@@ -95,6 +95,10 @@ function Table() {
   const [fillOpacity, setFillOpacity] = useState(0.35);
   const [fogOccludes, setFogOccludes] = useState(true);
   const [gmFogTransparent, setGmFogTransparent] = useState(false);
+  const [fogOpacity, setFogOpacity] = useState(1);
+  // The side column shows one panel at a time; they stay mounted so unsaved
+  // edits and scroll positions survive switching.
+  const [sideTab, setSideTab] = useState<'scene' | 'token' | 'chat' | 'history'>('chat');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUsers, setShowUsers] = useState(false);
   // On phones the side panels sit on top of the map, so they start closed and
@@ -272,6 +276,8 @@ function Table() {
         onClearFog={clearFog}
         onAddToken={addToken}
         onManageUsers={() => setShowUsers(true)}
+        gmPeek={gmFogTransparent}
+        onTogglePeek={() => setGmFogTransparent((v) => !v)}
       />
 
       <Board
@@ -281,6 +287,7 @@ function Table() {
         fogOccludes={fogOccludes}
         brushSize={brushSize}
         gmFogTransparent={gmFogTransparent}
+        fogOpacity={fogOpacity}
         fillEnabled={fillEnabled}
         fillColor={fillColor}
         fillOpacity={fillOpacity}
@@ -294,28 +301,61 @@ function Table() {
       />
 
       <div className="side">
-        <ScenePanel
-          role={role}
-          color={color}
-          setColor={setColor}
-          strokeWidth={strokeWidth}
-          setStrokeWidth={setStrokeWidth}
-          brushSize={brushSize}
-          setBrushSize={setBrushSize}
-          fogOccludes={fogOccludes}
-          setFogOccludes={setFogOccludes}
-          gmFogTransparent={gmFogTransparent}
-          setGmFogTransparent={setGmFogTransparent}
-          fillEnabled={fillEnabled}
-          setFillEnabled={setFillEnabled}
-          fillColor={fillColor}
-          setFillColor={setFillColor}
-          fillOpacity={fillOpacity}
-          setFillOpacity={setFillOpacity}
-        />
-        <Inspector selectedId={selectedId} role={role} />
-        <Chat />
-        <History />
+        <nav className="side-tabs" aria-label="Paneles laterales">
+          {(
+            [
+              ['scene', 'Escena', 'map'],
+              ['token', 'Ficha', 'user'],
+              ['chat', 'Chat', 'chat'],
+              ['history', 'Historial', 'history'],
+            ] as const
+          ).map(([id, label, icon]) => (
+            <button
+              key={id}
+              className={`side-tab ${sideTab === id ? 'active' : ''}`}
+              onClick={() => setSideTab(id)}
+              aria-selected={sideTab === id}
+            >
+              <Icon name={icon} size={14} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="side-panels">
+          <div className="side-panel" hidden={sideTab !== 'scene'}>
+            <ScenePanel
+              role={role}
+              color={color}
+              setColor={setColor}
+              strokeWidth={strokeWidth}
+              setStrokeWidth={setStrokeWidth}
+              brushSize={brushSize}
+              setBrushSize={setBrushSize}
+              fogOccludes={fogOccludes}
+              setFogOccludes={setFogOccludes}
+              gmFogTransparent={gmFogTransparent}
+              setGmFogTransparent={setGmFogTransparent}
+              fogOpacity={fogOpacity}
+              setFogOpacity={setFogOpacity}
+              fillEnabled={fillEnabled}
+              setFillEnabled={setFillEnabled}
+              fillColor={fillColor}
+              setFillColor={setFillColor}
+              fillOpacity={fillOpacity}
+              setFillOpacity={setFillOpacity}
+            />
+          </div>
+          <div className="side-panel" hidden={sideTab !== 'token'}>
+            <Inspector selectedId={selectedId} role={role} />
+          </div>
+          <div className="side-panel side-panel-grow" hidden={sideTab !== 'chat'}>
+            <Chat />
+          </div>
+          <div className="side-panel" hidden={sideTab !== 'history'}>
+            <History />
+          </div>
+        </div>
       </div>
 
       <button className="leave-btn" onClick={leaveTable} title="Salir de esta mesa">
