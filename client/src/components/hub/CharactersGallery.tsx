@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, assetUrl, type GlobalCharacter } from '../api';
-import Icon from './Icon';
+import { api, assetUrl, type GlobalCharacter } from '../../api';
+import Icon from '../Icon';
 
 type Ownership = 'all' | 'mine' | 'others';
 type Kind = 'all' | 'pc' | 'npc' | 'monster';
