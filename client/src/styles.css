@@ -80,15 +80,18 @@ textarea {
 .brand {
   font-weight: 700;
   letter-spacing: 0.02em;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+  flex: none;
 }
 .brand svg {
   flex: none;
   width: 22px;
   height: 22px;
+  min-width: 22px;
+  min-height: 22px;
 }
 
 .brand .owl {
@@ -771,6 +774,7 @@ textarea {
 .hub-sidebar-brand {
   font-size: 16px;
   padding: 4px 8px;
+  flex: none;
 }
 .hub-nav {
   display: flex;
