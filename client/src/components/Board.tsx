@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import Icon from './Icon';
 import { can, type Role } from '../permissions';
@@ -204,9 +204,12 @@ export default function Board({
   /* ---------------- pointer ---------------- */
   const panning = tool === 'pan' || spaceDown;
 
-  function worldAt(e: React.PointerEvent | PointerEvent): Vec {
-    return screenToWorld(e.clientX, e.clientY);
-  }
+  // screenToWorld is a stable useCallback, so wrapping it keeps the token
+  // memo effective across re-renders.
+  const worldAt = useCallback(
+    (e: React.PointerEvent | PointerEvent): Vec => screenToWorld(e.clientX, e.clientY),
+    [screenToWorld],
+  );
 
   function onPointerDown(e: React.PointerEvent) {
     if (!scene) return;
@@ -315,7 +318,9 @@ export default function Board({
           ny = Math.round(ny / step) * step;
         }
         dispatch({ kind: 'token.update', id: drag.id, patch: { x: nx, y: ny } });
-        setDrag({ ...drag, moved: true });
+        // Only flip `moved` once. Calling setDrag on every pointermove
+        // re-renders the whole board for nothing while dragging.
+        if (!drag.moved) setDrag({ ...drag, moved: true });
         break;
       }
       case 'resize': {
@@ -417,26 +422,29 @@ export default function Board({
     void e;
   }
 
-  function onTokenPointerDown(e: React.PointerEvent, token: Token) {
-    if (panning || tool !== 'select') return;
-    e.stopPropagation();
-    if (token.hidden && !isGM) return;
-    // Players may only move their own (or unowned) tokens.
-    const mine =
-      !token.owner || token.owner === self.id || (!!token.userId && token.userId === self.userId);
-    const canMove = can(role, 'token.moveAny') || mine;
-    if (!canMove || token.locked) return;
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    setSelectedId(token.id);
-    const w = worldAt(e);
-    setDrag({
-      type: 'token',
-      id: token.id,
-      offsetX: w.x - token.x,
-      offsetY: w.y - token.y,
-      moved: false,
-    });
-  }
+  const onTokenPointerDown = useCallback(
+    (e: React.PointerEvent, token: Token) => {
+      if (panning || tool !== 'select') return;
+      e.stopPropagation();
+      if (token.hidden && !isGM) return;
+      // Players may only move their own (or unowned) tokens.
+      const mine =
+        !token.owner || token.owner === self.id || (!!token.userId && token.userId === self.userId);
+      const canMove = can(role, 'token.moveAny') || mine;
+      if (!canMove || token.locked) return;
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      setSelectedId(token.id);
+      const w = worldAt(e);
+      setDrag({
+        type: 'token',
+        id: token.id,
+        offsetX: w.x - token.x,
+        offsetY: w.y - token.y,
+        moved: false,
+      });
+    },
+    [panning, tool, isGM, self.id, role],
+  );
 
   /* ---------------- helpers ---------------- */
   function fogShapeFromDraft(
@@ -843,17 +851,20 @@ function pointSegDist(p: Vec, a: Vec, b: Vec): number {
 function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hit?: boolean }) {
   if (d.points.length < 4) return null;
   const [x1, y1, x2, y2] = d.points;
-  const opacity = d.opacity ?? 1;
-  // Only closed shapes can be filled; the stroke layer above stays on top.
+  // Opacity belongs to the fill only. Applying it to the whole shape would make
+  // the outline translucent too, which is not what "fill opacity" means.
+  const opacity = Math.max(0, Math.min(1, d.opacity ?? 1));
+  // Only closed shapes can be filled.
   const fillable = d.kind === 'rect' || d.kind === 'circle';
-  const fill = hit ? 'none' : fillable && d.fill ? d.fill : 'none';
+  const hasFill = !hit && fillable && !!d.fill;
   const common = {
     stroke: hit ? 'transparent' : selected ? 'var(--accent)' : d.color,
     strokeWidth: hit ? Math.max(d.width, 16) : selected ? d.width + 2 : d.width,
-    fill,
     strokeLinecap: 'round' as const,
     pointerEvents: hit ? ('stroke' as const) : ('none' as const),
-    opacity: hit ? 1 : opacity,
+    fill: hasFill ? d.fill : 'none',
+    // SVG presentation attribute: only the fill fades, the stroke stays solid.
+    fillOpacity: hasFill ? opacity : 1,
   };
   switch (d.kind) {
     case 'pen': {
@@ -991,7 +1002,12 @@ function dotRect(a: Vec) {
   return { x: a.x - r, y: a.y - r, w: r * 2, h: r * 2 };
 }
 
-function TokenView({
+/**
+ * Memoized: the token list re-renders on every pointer move during a drag, and
+ * re-rendering each token (recomputing its inline left/top, box shadow and
+ * image) is what made them visibly shudder.
+ */
+const TokenView = memo(function TokenView({
   token,
   gridSize,
   selected,
@@ -1102,7 +1118,7 @@ function TokenView({
       )}
     </div>
   );
-}
+});
 
 /** Human-readable label for a condition (no emoji). */
 export function conditionIcon(c: string): string {

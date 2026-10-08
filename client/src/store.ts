@@ -343,6 +343,11 @@ export const useStore = create<Store>((set, get) => ({
           break;
         }
         case 'action':
+          // The server echoes every action back, including our own. Applying
+          // our own echo on top of the optimistic update re-renders the actor's
+          // own board mid-drag, which is what made tokens visibly shudder, so
+          // it is dropped: we already applied it locally.
+          if (msg.from && msg.from === get().clientId) break;
           set((s) => ({ state: reduce(s.state, msg.action), lastActionAt: Date.now() }));
           break;
         case 'players': {
