@@ -97,6 +97,37 @@ function Table() {
   const [gmFogTransparent, setGmFogTransparent] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUsers, setShowUsers] = useState(false);
+  // On phones the side panels sit on top of the map, so they start closed and
+  // are toggled from the top bar.
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches,
+  );
+  const [panelsOpen, setPanelsOpen] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 820px)');
+    const onChange = () => {
+      setIsNarrow(mq.matches);
+      if (!mq.matches) setPanelsOpen(false);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // Picking a tool on a phone should get the panels out of the way.
+  useEffect(() => {
+    if (isNarrow) setPanelsOpen(false);
+  }, [tool, isNarrow]);
+
+  // Escape closes the sheet, matching the desktop shortcut.
+  useEffect(() => {
+    if (!panelsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPanelsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [panelsOpen]);
 
   useEffect(() => {
     const handler = (e: Event) => setSelectedId((e as CustomEvent<string | null>).detail);
@@ -224,8 +255,11 @@ function Table() {
   const joined = status === 'connected' || status === 'connecting';
 
   return (
-    <div className="app">
-      <TopBar />
+    <div className={`app ${panelsOpen ? 'panels-open' : ''}`}>
+      <TopBar
+        panelOpen={panelsOpen}
+        onTogglePanels={isNarrow ? () => setPanelsOpen((v) => !v) : undefined}
+      />
       <ToolRail
         tool={tool}
         setTool={setTool}
@@ -250,6 +284,13 @@ function Table() {
         fillEnabled={fillEnabled}
         fillColor={fillColor}
         fillOpacity={fillOpacity}
+      />
+
+      <button
+        className="side-backdrop"
+        aria-label="Cerrar paneles"
+        tabIndex={panelsOpen ? 0 : -1}
+        onClick={() => setPanelsOpen(false)}
       />
 
       <div className="side">

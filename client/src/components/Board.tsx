@@ -1021,6 +1021,9 @@ function TokenView({
         cursor: token.locked ? 'not-allowed' : 'move',
         pointerEvents: dim ? 'none' : 'auto',
         display: dim ? 'none' : 'block',
+        // Tokens are styled inline, so touch-action has to be set here too:
+        // without it the browser scrolls instead of letting a finger drag.
+        touchAction: 'none',
       }}
     >
       <div

@@ -2,7 +2,11 @@ import { useStore } from '../store';
 import Icon from './Icon';
 import Brand from './Brand';
 
-export default function TopBar() {
+/** `panelOpen` only matters on phones, where the side panels cover the map. */
+export default function TopBar({ panelOpen, onTogglePanels }: {
+  panelOpen?: boolean;
+  onTogglePanels?: () => void;
+}) {
   const status = useStore((s) => s.status);
   const roomId = useStore((s) => s.roomId);
   const players = useStore((s) => s.players);
@@ -39,6 +43,18 @@ export default function TopBar() {
       </div>
 
       <div className="spacer" />
+
+      {onTogglePanels && (
+        <button
+          className={`icon-btn panels-toggle ${panelOpen ? 'on' : ''}`}
+          onClick={onTogglePanels}
+          title={panelOpen ? 'Cerrar paneles' : 'Abrir paneles'}
+          aria-label={panelOpen ? 'Cerrar paneles' : 'Abrir paneles'}
+          aria-expanded={!!panelOpen}
+        >
+          <Icon name="overview" size={16} />
+        </button>
+      )}
 
       <div className="players" title="Jugadores conectados">
         {players.map((p) => (

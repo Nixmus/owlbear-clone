@@ -63,6 +63,10 @@ textarea {
     'top top'
     'tools board';
   height: 100%;
+  /* Mobile browsers report 100% against a viewport that moves as the URL bar
+     hides, which collapses the board. dvh tracks the real visible height. */
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* ---------- Top bar ---------- */
@@ -236,6 +240,22 @@ textarea {
   z-index: 50;
 }
 
+/* The panels toggle only makes sense on phones, where the panels are a sheet. */
+.panels-toggle {
+  display: none;
+}
+
+/* Tapping the map dismisses the panel sheet. Rendered only while it is open. */
+.side-backdrop {
+  display: none;
+  position: absolute;
+  inset: 48px 0 66px 0;
+  z-index: 11;
+  border: 0;
+  padding: 0;
+  background: #000a;
+}
+
 /* ---------- Board ---------- */
 .board {
   grid-area: board;
@@ -254,7 +274,6 @@ textarea {
 
 /* Interactive children must not swallow the gesture either. */
 .board button,
-.board .token,
 .board .tool,
 .board .icon-btn {
   touch-action: none;
@@ -382,7 +401,6 @@ textarea {
   color: var(--text-dim);
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
-  cursor: grab;
 }
 .panel-head .grow {
   flex: 1;
@@ -2236,7 +2254,10 @@ textarea {
     display: none;
   }
 
-  /* side panels become a bottom sheet-ish scroll */
+  /* Side panels: on a phone they were laid over the whole board with
+     pointer-events auto, so they covered the map and swallowed every touch.
+     They are now hidden by default and slide in as a sheet on top, which the
+     top-bar button toggles. */
   .side {
     position: absolute;
     top: 48px;
@@ -2245,9 +2266,62 @@ textarea {
     bottom: 66px;
     width: auto;
     overflow-y: auto;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(8px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
   }
+  .app.panels-open .side {
+    pointer-events: auto;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+  .side > * {
+    pointer-events: auto;
+  }
+  /* A backdrop so a tap outside closes the sheet and reaches no stray control. */
+  .app.panels-open .side-backdrop {
+    display: block;
+  }
+  .panels-toggle {
+    display: grid;
+    flex: none;
+  }
+  .panels-toggle.on {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  /* Each panel capped its body at 46vh, and four of them stacked do not fit a
+     phone screen. The .side container is the only thing that scrolls now. */
   .panel-body {
     max-height: none;
+    overflow-y: visible;
+  }
+  .panel {
+    flex: none;
+  }
+  .chat {
+    height: 260px;
+  }
+  .board-hint {
+    display: none;
+  }
+  /* The zoom HUD sat in the same corner as the tool rail and the scene name
+     badge took half the width. Compact both so the map stays usable. */
+  .bottom-left {
+    left: 8px;
+    bottom: 8px;
+    max-width: calc(100% - 16px);
+  }
+  .bottom-left .panel {
+    padding: 4px 6px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .viewport-readout {
+    display: none;
   }
 
   .topbar {
