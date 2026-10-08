@@ -62,6 +62,21 @@ function canEdit(role) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Visibility
+ *
+ * 'private' means owner-only: other campaign members - including the GM -
+ * must not see it. Absent/legacy rows count as public.
+ * ------------------------------------------------------------------ */
+
+function canSee(row, userId) {
+  return (row.visibility || 'public') !== 'private' || row.owner_id === userId;
+}
+
+function normVisibility(v) {
+  return v === 'private' ? 'private' : 'public';
+}
+
+/* ------------------------------------------------------------------ *
  * Auth / profile
  * ------------------------------------------------------------------ */
 
@@ -276,7 +291,10 @@ router.get('/characters', auth, (req, res) => {
     )
     .all(uid, uid, uid);
 
-  let list = rows.map((c) => ({
+  // Private sheets stay hidden from everyone but their owner.
+  const visibleRows = rows.filter((c) => canSee(c, uid));
+
+  let list = visibleRows.map((c) => ({
     id: c.id,
     campaignId: c.campaign_id,
     campaignName: c.campaign_name,
@@ -286,6 +304,7 @@ router.get('/characters', auth, (req, res) => {
     kind: c.kind,
     data: safeJson(c.data),
     portraitUrl: c.portrait_url,
+    visibility: c.visibility || 'public',
     updatedAt: c.updated_at,
   }));
 
@@ -444,7 +463,7 @@ router.get('/campaigns/:id/characters', auth, (req, res) => {
   const { role } = campaignRole(req.params.id, req.user.id);
   if (!role) return res.status(404).json({ error: 'Not found' });
   const rows = db.prepare('SELECT * FROM characters WHERE campaign_id = ? ORDER BY updated_at DESC').all(req.params.id);
-  res.json({ characters: rows.map(parseCharacter) });
+  res.json({ characters: rows.filter((c) => canSee(c, req.user.id)).map(parseCharacter) });
 });
 
 function parseCharacter(c) {
@@ -457,6 +476,7 @@ function parseCharacter(c) {
     data: safeJson(c.data),
     portraitUrl: c.portrait_url,
     templateId: c.template_id || null,
+    visibility: c.visibility || 'public',
     createdAt: c.created_at,
     updatedAt: c.updated_at,
   };
@@ -537,8 +557,10 @@ function parseTemplate(t) {
   return {
     id: t.id,
     campaignId: t.campaign_id,
+    ownerId: t.owner_id || null,
     name: t.name,
     schema: safeJson(t.schema),
+    visibility: t.visibility || 'public',
     createdAt: t.created_at,
     updatedAt: t.updated_at,
   };
@@ -550,7 +572,7 @@ router.get('/campaigns/:id/templates', auth, (req, res) => {
   const rows = db
     .prepare('SELECT * FROM sheet_templates WHERE campaign_id = ? ORDER BY name COLLATE NOCASE')
     .all(req.params.id);
-  res.json({ templates: rows.map(parseTemplate) });
+  res.json({ templates: rows.filter((t) => canSee(t, req.user.id)).map(parseTemplate) });
 });
 
 router.post('/campaigns/:id/templates', auth, (req, res) => {
@@ -560,13 +582,25 @@ router.post('/campaigns/:id/templates', auth, (req, res) => {
   const name = String(body(req).name || '').trim().slice(0, 60);
   if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
   const schema = normalizeTemplateSchema(body(req).schema);
+  const visibility = normVisibility(body(req).visibility);
   const id = nanoid(12);
   const t = now();
   db.prepare(
-    `INSERT INTO sheet_templates (id, campaign_id, name, schema, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(id, req.params.id, name, JSON.stringify(schema), t, t);
-  res.status(201).json({ template: { id, campaignId: req.params.id, name, schema, createdAt: t, updatedAt: t } });
+    `INSERT INTO sheet_templates (id, campaign_id, owner_id, name, schema, visibility, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, req.params.id, req.user.id, name, JSON.stringify(schema), visibility, t, t);
+  res.status(201).json({
+    template: {
+      id,
+      campaignId: req.params.id,
+      ownerId: req.user.id,
+      name,
+      schema,
+      visibility,
+      createdAt: t,
+      updatedAt: t,
+    },
+  });
 });
 
 router.patch('/templates/:id', auth, (req, res) => {
@@ -585,6 +619,14 @@ router.patch('/templates/:id', auth, (req, res) => {
     now(),
     req.params.id,
   );
+  // As with characters, only the owner flips visibility.
+  if ('visibility' in patch && t.owner_id === req.user.id) {
+    db.prepare('UPDATE sheet_templates SET visibility = ?, updated_at = ? WHERE id = ?').run(
+      normVisibility(patch.visibility),
+      now(),
+      req.params.id,
+    );
+  }
   res.json({ ok: true });
 });
 
@@ -644,6 +686,7 @@ router.get('/characters/:id', auth, (req, res) => {
   if (!c) return res.status(404).json({ error: 'Not found' });
   const { role } = c.campaign_id ? campaignRole(c.campaign_id, req.user.id) : { role: null };
   if (c.owner_id !== req.user.id && !role) return res.status(403).json({ error: 'Forbidden' });
+  if (!canSee(c, req.user.id)) return res.status(404).json({ error: 'Not found' });
   res.json({ character: parseCharacter(c) });
 });
 
@@ -652,6 +695,9 @@ router.patch('/characters/:id', auth, (req, res) => {
   if (!c) return res.status(404).json({ error: 'Not found' });
   const { role } = c.campaign_id ? campaignRole(c.campaign_id, req.user.id) : { role: null };
   if (c.owner_id !== req.user.id && !canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  // A private sheet must not be editable by anyone but its owner, or a GM
+  // could un-hide it by writing to it.
+  if (!canSee(c, req.user.id)) return res.status(403).json({ error: 'Forbidden' });
   const patch = body(req);
   const { name, kind, data, portraitUrl } = patch;
   db.prepare(
@@ -688,12 +734,23 @@ router.patch('/characters/:id', auth, (req, res) => {
       req.params.id,
     );
   }
+
+  // Only the owner may flip visibility: otherwise a GM could publish someone's
+  // private sheet, or a player could un-hide one they do not own.
+  if ('visibility' in patch && c.owner_id === req.user.id) {
+    db.prepare('UPDATE characters SET visibility = ?, updated_at = ? WHERE id = ?').run(
+      normVisibility(patch.visibility),
+      now(),
+      req.params.id,
+    );
+  }
   res.json({ ok: true });
 });
 
 router.delete('/characters/:id', auth, (req, res) => {
   const c = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
+  if (!canSee(c, req.user.id)) return res.status(404).json({ error: 'Not found' });
   if (c.owner_id !== req.user.id) {
     const { role } = c.campaign_id ? campaignRole(c.campaign_id, req.user.id) : { role: null };
     if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
@@ -706,12 +763,26 @@ router.delete('/characters/:id', auth, (req, res) => {
  * Assets
  * ------------------------------------------------------------------ */
 
+/** Names of folders in this campaign that the requester must not see. */
+function hiddenFolderNames(campaignId, userId) {
+  const rows = db
+    .prepare('SELECT name, owner_id, visibility FROM asset_folders WHERE campaign_id = ?')
+    .all(campaignId);
+  return new Set(rows.filter((f) => !canSee(f, userId)).map((f) => f.name));
+}
+
+/** An asset is listable if it is visible AND not filed in a hidden folder. */
+function canListAsset(a, userId, hidden) {
+  return canSee(a, userId) && !(a.folder && hidden.has(a.folder));
+}
+
 router.get('/campaigns/:id/assets', auth, (req, res) => {
   const { role } = campaignRole(req.params.id, req.user.id);
   if (!role) return res.status(404).json({ error: 'Not found' });
   const rows = db.prepare('SELECT * FROM assets WHERE campaign_id = ? ORDER BY created_at DESC').all(req.params.id);
+  const hidden = hiddenFolderNames(req.params.id, req.user.id);
   res.json({
-    assets: rows.map((a) => ({
+    assets: rows.filter((a) => canListAsset(a, req.user.id, hidden)).map((a) => ({
       id: a.id,
       campaignId: a.campaign_id,
       ownerId: a.owner_id,
@@ -720,6 +791,7 @@ router.get('/campaigns/:id/assets', auth, (req, res) => {
       kind: a.kind,
       folder: a.folder || '',
       url: a.url,
+      visibility: a.visibility || 'public',
       createdAt: a.created_at,
     })),
   });
@@ -749,7 +821,17 @@ router.get('/campaigns/:id/folders', auth, (req, res) => {
   const rows = db
     .prepare('SELECT * FROM asset_folders WHERE campaign_id = ? ORDER BY name COLLATE NOCASE')
     .all(req.params.id);
-  res.json({ folders: rows.map((f) => ({ id: f.id, campaignId: f.campaign_id, name: f.name })) });
+  res.json({
+    folders: rows
+      .filter((f) => canSee(f, req.user.id))
+      .map((f) => ({
+        id: f.id,
+        campaignId: f.campaign_id,
+        ownerId: f.owner_id,
+        name: f.name,
+        visibility: f.visibility || 'public',
+      })),
+  });
 });
 
 router.post('/campaigns/:id/folders', auth, (req, res) => {
@@ -758,28 +840,34 @@ router.post('/campaigns/:id/folders', auth, (req, res) => {
   if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
   const name = cleanFolderName(body(req).name);
   if (!name) return res.status(400).json({ error: 'Nombre de carpeta no válido' });
+  const visibility = normVisibility(body(req).visibility);
   const id = nanoid();
   try {
     db.prepare(
-      'INSERT INTO asset_folders (id, campaign_id, name, created_at) VALUES (?, ?, ?, ?)',
-    ).run(id, req.params.id, name, now());
+      'INSERT INTO asset_folders (id, campaign_id, owner_id, name, visibility, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(id, req.params.id, req.user.id, name, visibility, now());
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) {
       return res.status(409).json({ error: 'Ya existe una carpeta con ese nombre' });
     }
     throw e;
   }
-  res.json({ ok: true, folder: { id, campaignId: req.params.id, name } });
+  res.json({
+    ok: true,
+    folder: { id, campaignId: req.params.id, ownerId: req.user.id, name, visibility },
+  });
 });
 
 router.patch('/folders/:id', auth, (req, res) => {
   const f = db.prepare('SELECT * FROM asset_folders WHERE id = ?').get(req.params.id);
   if (!f) return res.status(404).json({ error: 'Not found' });
+  if (!canSee(f, req.user.id)) return res.status(404).json({ error: 'Not found' });
   const { role } = campaignRole(f.campaign_id, req.user.id);
   if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
-  const name = cleanFolderName(body(req).name);
+  const patch = body(req);
+  const name = cleanFolderName(patch.name);
   if (!name) return res.status(400).json({ error: 'Nombre de carpeta no válido' });
-  if (name === f.name) return res.json({ ok: true });
+  if (name === f.name && !('visibility' in patch)) return res.json({ ok: true });
   try {
     db.prepare('UPDATE asset_folders SET name = ? WHERE id = ?').run(name, req.params.id);
   } catch (e) {
@@ -794,12 +882,20 @@ router.patch('/folders/:id', auth, (req, res) => {
     f.campaign_id,
     f.name,
   );
+  // Only the owner flips visibility.
+  if ('visibility' in patch && f.owner_id === req.user.id) {
+    db.prepare('UPDATE asset_folders SET visibility = ? WHERE id = ?').run(
+      normVisibility(patch.visibility),
+      req.params.id,
+    );
+  }
   res.json({ ok: true });
 });
 
 router.delete('/folders/:id', auth, (req, res) => {
   const f = db.prepare('SELECT * FROM asset_folders WHERE id = ?').get(req.params.id);
   if (!f) return res.status(404).json({ error: 'Not found' });
+  if (!canSee(f, req.user.id)) return res.status(404).json({ error: 'Not found' });
   const { role } = campaignRole(f.campaign_id, req.user.id);
   if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
   // Like a file manager: deleting a folder moves its contents to the root
@@ -817,15 +913,24 @@ router.delete('/folders/:id', auth, (req, res) => {
 router.patch('/assets/:id', auth, (req, res) => {
   const a = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
   if (!a) return res.status(404).json({ error: 'Not found' });
+  if (!canSee(a, req.user.id)) return res.status(404).json({ error: 'Not found' });
   if (a.owner_id !== req.user.id) {
     const { role } = a.campaign_id ? campaignRole(a.campaign_id, req.user.id) : { role: null };
     if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
   }
-  const { folder, name, kind } = body(req);
+  const patch = body(req);
+  const { folder, name, kind } = patch;
   db.prepare(
     `UPDATE assets SET folder = COALESCE(?, folder), name = COALESCE(?, name), kind = COALESCE(?, kind)
      WHERE id = ?`,
   ).run(folder ?? null, name ?? null, kind ?? null, req.params.id);
+  // Only the owner flips visibility.
+  if ('visibility' in patch && a.owner_id === req.user.id) {
+    db.prepare('UPDATE assets SET visibility = ? WHERE id = ?').run(
+      normVisibility(patch.visibility),
+      req.params.id,
+    );
+  }
   res.json({ ok: true });
 });
 
@@ -842,11 +947,19 @@ router.get('/campaigns/:id/assets.zip', auth, (req, res) => {
     )
     .all(...(folder === null ? [req.params.id] : [req.params.id, folder]));
 
+  // Same filtering as the listing, otherwise the ZIP becomes a way to
+  // download private assets by skipping the UI entirely.
+  const hidden = hiddenFolderNames(req.params.id, req.user.id);
+  const downloadable = rows.filter((a) => canListAsset(a, req.user.id, hidden));
+  if (downloadable.length === 0) {
+    return res.status(404).json({ error: 'No hay recursos que descargar' });
+  }
+
   res.attachment(`recursos-${req.params.id}.zip`);
   const archive = archiver('zip', { zlib: { level: 9 } });
   archive.on('error', () => res.status(500).end());
   archive.pipe(res);
-  for (const a of rows) {
+  for (const a of downloadable) {
     const filePath = path.join(UPLOAD_DIR, path.basename(a.url));
     if (fs.existsSync(filePath)) {
       const prefix = a.folder ? `${a.folder}/` : '';
@@ -945,14 +1058,15 @@ router.post('/upload', auth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
   const url = `/uploads/${req.file.filename}`;
   const { campaignId, name, kind, mime, folder } = body(req);
+  const visibility = normVisibility(body(req).visibility);
   let assetId = null;
   if (campaignId) {
     const { role } = campaignRole(campaignId, req.user.id);
     if (role) {
       assetId = nanoid(12);
       db.prepare(
-        `INSERT INTO assets (id, campaign_id, owner_id, name, mime, kind, folder, url, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO assets (id, campaign_id, owner_id, name, mime, kind, folder, url, visibility, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         assetId,
         campaignId,
@@ -962,6 +1076,7 @@ router.post('/upload', auth, upload.single('file'), (req, res) => {
         kind || 'image',
         folder || '',
         url,
+        visibility,
         now(),
       );
     }
@@ -972,6 +1087,7 @@ router.post('/upload', auth, upload.single('file'), (req, res) => {
 router.delete('/assets/:id', auth, (req, res) => {
   const a = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
   if (!a) return res.status(404).json({ error: 'Not found' });
+  if (!canSee(a, req.user.id)) return res.status(404).json({ error: 'Not found' });
   if (a.owner_id !== req.user.id) {
     const { role } = a.campaign_id ? campaignRole(a.campaign_id, req.user.id) : { role: null };
     if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });

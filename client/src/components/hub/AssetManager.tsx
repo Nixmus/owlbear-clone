@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, assetUrl, downloadAssetZip, type Asset, type AssetFolder } from '../../api';
+import { api, assetUrl, downloadAssetZip, type Asset, type AssetFolder, type Visibility } from '../../api';
 import Icon from '../Icon';
 import SearchField from '../SearchField';
+import VisibilityToggle from '../VisibilityToggle';
 
 const KINDS = [
   { value: 'image', label: 'Imagen' },
@@ -29,11 +30,13 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<Asset | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadPrivate, setUploadPrivate] = useState(false);
   const [error, setError] = useState('');
   const [dropActive, setDropActive] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newFolderPrivate, setNewFolderPrivate] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -81,6 +84,7 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
         form.append('name', file.name);
         form.append('kind', uploadKind);
         form.append('folder', cwd);
+        form.append('visibility', uploadPrivate ? 'private' : 'public');
         await api.upload('/upload', form);
       }
       await load();
@@ -126,6 +130,29 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     return r.folder.id;
   }
 
+  /** Flip a folder's visibility; only its owner is allowed to. */
+  async function setFolderVisibility(folder: AssetFolder, next: Visibility) {
+    setError('');
+    try {
+      await api.patch(`/folders/${folder.id}`, { visibility: next });
+      setFolders((prev) => prev.map((f) => (f.id === folder.id ? { ...f, visibility: next } : f)));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  /** Optimistic flip for an asset, rolled back if the server refuses. */
+  async function setAssetVisibility(asset: Asset, next: Visibility) {
+    const prev = assets;
+    setAssets((cur) => cur.map((a) => (a.id === asset.id ? { ...a, visibility: next } : a)));
+    try {
+      await api.patch(`/assets/${asset.id}`, { visibility: next });
+    } catch (e) {
+      setAssets(prev);
+      setError((e as Error).message);
+    }
+  }
+
   async function createFolder() {
     const name = newName.trim();
     if (!name) {
@@ -134,8 +161,12 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     }
     setError('');
     try {
-      await api.post(`/campaigns/${campaignId}/folders`, { name });
+      await api.post(`/campaigns/${campaignId}/folders`, {
+        name,
+        visibility: newFolderPrivate ? 'private' : 'public',
+      });
       setNewName('');
+      setNewFolderPrivate(false);
       setCreating(false);
       await load();
       setCwd(name);
@@ -300,6 +331,11 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
           </button>
 
           <div className="fm-upload">
+            <VisibilityToggle
+              value={uploadPrivate ? 'private' : 'public'}
+              onChange={(next) => setUploadPrivate(next === 'private')}
+              label="Visibilidad de lo que se suba ahora"
+            />
             <select
               className="fm-select"
               value={uploadKind}
@@ -344,8 +380,10 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             <span>Todos los recursos</span>
           </button>
 
-          {folderNames.map((f) =>
-            renaming === f ? (
+          {folderNames.map((f) => {
+            const folder = folders.find((x) => x.name === f);
+            const isPrivate = folder?.visibility === 'private';
+            return renaming === f ? (
               <input
                 key={f}
                 className="fm-side-input"
@@ -361,10 +399,17 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             ) : (
               <div key={f} className={`fm-side-row ${cwd === f ? 'active' : ''}`}>
                 <button className="fm-side-item" onClick={() => openFolder(f)} title={f}>
-                  <Icon name="folder" size={15} />
+                  <Icon name={isPrivate ? 'lock' : 'folder'} size={15} />
                   <span className="fm-side-name">{f}</span>
                   <em>{assets.filter((a) => a.folder === f).length}</em>
                 </button>
+                {folder && (
+                  <VisibilityToggle
+                    value={folder.visibility || 'public'}
+                    onChange={(next) => setFolderVisibility(folder, next)}
+                    label={`Visibilidad de la carpeta ${f}`}
+                  />
+                )}
                 {canEdit && (
                   <span className="fm-side-tools">
                     <button
@@ -383,26 +428,34 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
                   </span>
                 )}
               </div>
-            ),
-          )}
+            );
+          })}
 
           {canEdit &&
             (creating ? (
-              <input
-                className="fm-side-input"
-                placeholder="Nombre de la carpeta"
-                value={newName}
-                autoFocus
-                onChange={(e) => setNewName(e.target.value)}
-                onBlur={createFolder}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') createFolder();
-                  if (e.key === 'Escape') {
-                    setCreating(false);
-                    setNewName('');
-                  }
-                }}
-              />
+              <div className="fm-newfolder">
+                <input
+                  className="fm-side-input"
+                  placeholder="Nombre de la carpeta"
+                  value={newName}
+                  autoFocus
+                  onChange={(e) => setNewName(e.target.value)}
+                  onBlur={createFolder}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') createFolder();
+                    if (e.key === 'Escape') {
+                      setCreating(false);
+                      setNewName('');
+                      setNewFolderPrivate(false);
+                    }
+                  }}
+                />
+                <VisibilityToggle
+                  value={newFolderPrivate ? 'private' : 'public'}
+                  onChange={(next) => setNewFolderPrivate(next === 'private')}
+                  label="Visibilidad de la nueva carpeta"
+                />
+              </div>
             ) : (
               <button className="fm-side-new" onClick={() => setCreating(true)}>
                 <Icon name="plus" size={14} /> Nueva carpeta
@@ -431,18 +484,23 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             void onFiles(e.dataTransfer.files);
           }}
         >
-          {subFolders.map((f) => (
-            <button key={f} className="fm-item fm-folder" onClick={() => openFolder(f)}>
-              <span className="fm-thumb">
-                <Icon name="folder" size={34} />
-              </span>
-              <span className="fm-item-name">{f}</span>
-              <span className="fm-item-sub">
-                {assets.filter((a) => a.folder === f).length}{' '}
-                {assets.filter((a) => a.folder === f).length === 1 ? 'archivo' : 'archivos'}
-              </span>
-            </button>
-          ))}
+          {subFolders.map((f) => {
+            const folder = folders.find((x) => x.name === f);
+            const isPrivate = folder?.visibility === 'private';
+            const count = assets.filter((a) => a.folder === f).length;
+            return (
+              <button key={f} className="fm-item fm-folder" onClick={() => openFolder(f)}>
+                <span className="fm-thumb">
+                  <Icon name={isPrivate ? 'lock' : 'folder'} size={34} />
+                </span>
+                <span className="fm-item-name">{f}</span>
+                <span className="fm-item-sub">
+                  {count} {count === 1 ? 'archivo' : 'archivos'}
+                  {isPrivate ? ' · privado' : ''}
+                </span>
+              </button>
+            );
+          })}
 
           {files.map((a) => (
             <div
@@ -469,8 +527,14 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
               <span className="fm-item-sub">
                 {kindLabel(a.kind)}
                 {formatDate(a.createdAt) ? ` · ${formatDate(a.createdAt)}` : ''}
+                {a.visibility === 'private' ? ' · privado' : ''}
               </span>
               <span className="fm-item-actions">
+                <VisibilityToggle
+                  value={a.visibility || 'public'}
+                  onChange={(next) => setAssetVisibility(a, next)}
+                  label={`Visibilidad de ${a.name}`}
+                />
                 <button
                   className="icon-btn"
                   title="Copiar URL"

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { api, type SheetField, type SheetTemplate } from '../../api';
+import { api, type SheetField, type SheetTemplate, type Visibility } from '../../api';
 import Icon from '../Icon';
+import VisibilityToggle from '../VisibilityToggle';
 
 const TYPES: { value: SheetField['type']; label: string }[] = [
   { value: 'text', label: 'Texto' },
@@ -35,6 +36,7 @@ export default function SheetTemplateEditor({
   const [name, setName] = useState('');
   const [fields, setFields] = useState<SheetField[]>([blankField()]);
   const [attributes, setAttributes] = useState('');
+  const [editingVisibility, setEditingVisibility] = useState<Visibility>('public');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -61,6 +63,7 @@ export default function SheetTemplateEditor({
     setName(t.name);
     setFields(t.schema.fields?.length ? t.schema.fields.map((f) => ({ ...f })) : [blankField()]);
     setAttributes((t.schema.attributes || []).join(', '));
+    setEditingVisibility(t.visibility || 'public');
     setError('');
   }
 
@@ -69,6 +72,7 @@ export default function SheetTemplateEditor({
     setName('');
     setFields([blankField()]);
     setAttributes('');
+    setEditingVisibility('public');
     setError('');
   }
 
@@ -91,9 +95,17 @@ export default function SheetTemplateEditor({
       const schema = { fields: clean, attributes: attrList.map((a) => a.toUpperCase()) };
 
       if (editingId) {
-        await api.patch(`/templates/${editingId}`, { name: name.trim(), schema });
+        await api.patch(`/templates/${editingId}`, {
+          name: name.trim(),
+          schema,
+          visibility: editingVisibility,
+        });
       } else {
-        await api.post(`/campaigns/${campaignId}/templates`, { name: name.trim(), schema });
+        await api.post(`/campaigns/${campaignId}/templates`, {
+          name: name.trim(),
+          schema,
+          visibility: editingVisibility,
+        });
       }
       reset();
       onChanged();
@@ -101,6 +113,18 @@ export default function SheetTemplateEditor({
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function setTemplateVisibility(t: SheetTemplate, next: Visibility) {
+    setError('');
+    try {
+      await api.patch(`/templates/${t.id}`, { visibility: next });
+      // `templates` is a prop owned by the parent, so reload instead of
+      // keeping a second copy that could drift.
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
     }
   }
 
@@ -139,8 +163,16 @@ export default function SheetTemplateEditor({
             <li key={t.id} className={editingId === t.id ? 'active' : ''}>
               <button className="tpl-pick" onClick={() => loadTemplate(t)}>
                 <b>{t.name}</b>
-                <span className="muted">{t.schema.fields?.length || 0} campos</span>
+                <span className="muted">
+                  {t.schema.fields?.length || 0} campos
+                  {t.visibility === 'private' ? ' · privada' : ''}
+                </span>
               </button>
+              <VisibilityToggle
+                value={t.visibility || 'public'}
+                onChange={(next) => setTemplateVisibility(t, next)}
+                label={`Visibilidad de la plantilla ${t.name}`}
+              />
               <button className="icon-btn danger" title="Eliminar plantilla" onClick={() => remove(t)}>
                 <Icon name="trash" size={14} />
               </button>
@@ -217,6 +249,20 @@ export default function SheetTemplateEditor({
         <span className="hint">
           Si los rellenas, la ficha muestra el bloque de atributos con su modificador. Para un sistema
           sin atributos, déjalo vacío.
+        </span>
+      </div>
+
+      <div className="field">
+        <label>Visibilidad de la plantilla</label>
+        <VisibilityToggle
+          value={editingVisibility}
+          onChange={(next) => setEditingVisibility(next)}
+          label="Visibilidad de la plantilla"
+        />
+        <span className="hint">
+          {editingVisibility === 'private'
+            ? 'Solo tú verás esta plantilla. Los demás GM y jugadores no la verán en su selector.'
+            : 'Todos los miembros de la campaña podrán usar esta plantilla.'}
         </span>
       </div>
 

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS characters (
   kind        TEXT NOT NULL DEFAULT 'pc', -- pc | npc | monster
   data        TEXT NOT NULL DEFAULT '{}', -- JSON sheet
   portrait_url TEXT,
+  visibility  TEXT NOT NULL DEFAULT 'public', -- public | private (owner only)
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS assets (
   kind        TEXT NOT NULL DEFAULT 'image', -- image | map | token | audio | doc
   folder      TEXT NOT NULL DEFAULT '',     -- grouping folder
   url         TEXT NOT NULL,
+  visibility  TEXT NOT NULL DEFAULT 'public', -- public | private (owner only)
   created_at  INTEGER NOT NULL
 );
 
@@ -84,8 +86,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS sheet_templates (
   id          TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  owner_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   schema      TEXT NOT NULL DEFAULT '{}', -- JSON { attributes: string[], fields: SheetField[] }
+  visibility  TEXT NOT NULL DEFAULT 'public', -- public | private (owner only)
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
@@ -125,6 +129,22 @@ if (!columnExists('assets', 'folder')) {
 }
 if (!columnExists('characters', 'template_id')) {
   db.exec('ALTER TABLE characters ADD COLUMN template_id TEXT');
+}
+
+// --- privacy: private items are visible only to their owner ---
+for (const [table, withOwner] of [
+  ['characters', false],
+  ['assets', false],
+  ['asset_folders', false],
+  ['sheet_templates', true],
+]) {
+  if (!columnExists(table, 'visibility')) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`);
+  }
+  // sheet_templates predates this change without an owner, so it needs both.
+  if (withOwner && !columnExists(table, 'owner_id')) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN owner_id TEXT`);
+  }
 }
 
 export default db;

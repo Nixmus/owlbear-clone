@@ -150,8 +150,10 @@ export interface SheetSchema {
 export interface SheetTemplate {
   id: string;
   campaignId: string;
+  ownerId: string;
   name: string;
   schema: SheetSchema;
+  visibility: Visibility;
   createdAt: number;
   updatedAt: number;
 }
@@ -165,6 +167,7 @@ export interface Character {
   data: Record<string, unknown>;
   portraitUrl: string | null;
   templateId: string | null; // null = built-in sheet
+  visibility: Visibility;
   createdAt: number;
   updatedAt: number;
 }
@@ -179,13 +182,19 @@ export interface GlobalCharacter {
   kind: 'pc' | 'npc' | 'monster';
   data: Record<string, unknown>;
   portraitUrl: string | null;
+  visibility: Visibility;
   updatedAt: number;
 }
+
+/** 'private' means owner-only: other members, the GM included, do not see it. */
+export type Visibility = 'public' | 'private';
 
 export interface AssetFolder {
   id: string;
   campaignId: string;
+  ownerId: string;
   name: string;
+  visibility: Visibility;
 }
 
 export interface Asset {
@@ -197,6 +206,7 @@ export interface Asset {
   kind: string;
   folder: string;
   url: string;
+  visibility: Visibility;
   createdAt: number;
 }
 

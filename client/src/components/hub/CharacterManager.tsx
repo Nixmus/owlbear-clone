@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, assetUrl, uploadImage, type Character, type SheetField, type SheetSchema, type SheetTemplate } from '../../api';
+import {
+  api,
+  assetUrl,
+  uploadImage,
+  type Character,
+  type SheetField,
+  type SheetSchema,
+  type SheetTemplate,
+  type Visibility,
+} from '../../api';
 import Icon from '../Icon';
 import SheetTemplateEditor from './SheetTemplateEditor';
+import VisibilityToggle from '../VisibilityToggle';
 
 /**
  * The default sheet, used whenever a character has no template. The attribute
@@ -136,6 +146,11 @@ export default function CharacterManager({ campaignId }: { campaignId: string })
               >
                 <span className="kind-badge">{kindLabel(c.kind)}</span>
                 <b>{c.name}</b>
+                {c.visibility === 'private' && (
+                  <span className="chip" title="Solo tú puedes verlo">
+                    <Icon name="lock" size={11} /> privado
+                  </span>
+                )}
                 {c.templateId && <span className="chip">{templateName(c.templateId, templates)}</span>}
               </li>
             ))}
@@ -209,6 +224,10 @@ function CharacterSheet({
   const [data, setData] = useState<Record<string, any>>(character.data);
   const [name, setName] = useState(character.name);
   const [portraitUrl, setPortraitUrl] = useState<string | null>(character.portraitUrl);
+  const [localVisibility, setLocalVisibility] = useState<Visibility>(
+    character.visibility || 'public',
+  );
+  const [visibilityError, setVisibilityError] = useState('');
   const [saved, setSaved] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -216,7 +235,9 @@ function CharacterSheet({
     setData(character.data);
     setName(character.name);
     setPortraitUrl(character.portraitUrl);
-  }, [character.id, character.data, character.name, character.portraitUrl]);
+    setLocalVisibility(character.visibility || 'public');
+    setVisibilityError('');
+  }, [character.id, character.data, character.name, character.portraitUrl, character.visibility]);
 
   const set = (path: string, value: unknown) => {
     setData((d) => setPath({ ...d }, path, value));
@@ -256,6 +277,18 @@ function CharacterSheet({
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     onSaved();
+  }
+
+  /** Private means owner-only, so the server only accepts this from the owner. */
+  async function setVisibility(next: Visibility) {
+    setVisibilityError('');
+    try {
+      await api.patch(`/characters/${character.id}`, { visibility: next });
+      setLocalVisibility(next);
+      onSaved();
+    } catch (e) {
+      setVisibilityError((e as Error).message);
+    }
   }
 
   async function remove() {
@@ -315,6 +348,20 @@ function CharacterSheet({
               <span className="hint">Cambiar de plantilla conserva los valores ya escritos.</span>
             </div>
           )}
+          <div className="field">
+            <label>Visibilidad</label>
+            <VisibilityToggle
+              value={localVisibility}
+              onChange={(next) => setVisibility(next)}
+              label={`Visibilidad de ${character.name}`}
+            />
+            <span className="hint">
+              {localVisibility === 'private'
+                ? 'Solo tú puedes ver esta ficha, el director incluido.'
+                : 'Todos los miembros de la campaña ven esta ficha.'}
+            </span>
+            {visibilityError && <span className="error">{visibilityError}</span>}
+          </div>
           {hasKeyword && (
             <div className="field">
               <label>Palabra clave (hablar en el chat)</label>
