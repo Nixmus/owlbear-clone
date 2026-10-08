@@ -141,14 +141,21 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     }
   }
 
-  /** Optimistic flip for an asset, rolled back if the server refuses. */
+  /**
+   * Optimistic flip for an asset, rolled back if the server refuses. The
+   * rollback restores this one asset's previous value rather than the whole
+   * array, otherwise two quick toggles in the same render would make the first
+   * failure undo the second as well.
+   */
   async function setAssetVisibility(asset: Asset, next: Visibility) {
-    const prev = assets;
+    const previous = asset.visibility || 'public';
     setAssets((cur) => cur.map((a) => (a.id === asset.id ? { ...a, visibility: next } : a)));
     try {
       await api.patch(`/assets/${asset.id}`, { visibility: next });
     } catch (e) {
-      setAssets(prev);
+      setAssets((cur) =>
+        cur.map((a) => (a.id === asset.id ? { ...a, visibility: previous } : a)),
+      );
       setError((e as Error).message);
     }
   }

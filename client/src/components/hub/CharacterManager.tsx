@@ -442,6 +442,7 @@ function Field({
   data: Record<string, any>;
   onSet: (path: string, value: unknown) => void;
 }) {
+  // getPath always returns string | number, so this is always a valid `value`.
   const raw = getPath(data, field.key);
   // Textareas span the row; normal fields share the grid; tight ones stay narrow.
   const cls =
@@ -450,15 +451,11 @@ function Field({
     <div className={cls}>
       <label>{field.label}</label>
       {field.type === 'textarea' ? (
-        <textarea rows={2} value={raw ?? ''} onChange={(e) => onSet(field.key, e.target.value)} />
+        <textarea rows={2} value={raw} onChange={(e) => onSet(field.key, e.target.value)} />
       ) : field.type === 'number' ? (
-        <input
-          type="number"
-          value={raw ?? 0}
-          onChange={(e) => onSet(field.key, Number(e.target.value))}
-        />
+        <input type="number" value={raw} onChange={(e) => onSet(field.key, Number(e.target.value))} />
       ) : (
-        <input value={raw ?? ''} onChange={(e) => onSet(field.key, e.target.value)} />
+        <input value={raw} onChange={(e) => onSet(field.key, e.target.value)} />
       )}
     </div>
   );
@@ -493,11 +490,22 @@ function setPath(obj: Record<string, any>, path: string, value: unknown): Record
   return obj;
 }
 
-function getPath(obj: Record<string, any>, path: string): unknown {
+/**
+ * Reads a (possibly dotted) key out of the sheet data and normalizes it to
+ * something an input can hold. Returning `string | number` rather than
+ * `unknown` matters: `unknown ?? ''` narrows to `{}`, which is not assignable
+ * to the `value` prop of <input>/<textarea>.
+ */
+function getPath(obj: Record<string, any>, path: string): string | number {
   let cur: any = obj;
   for (const k of path.split('.')) {
-    if (cur === null || cur === undefined) return undefined;
+    if (cur === null || cur === undefined) return '';
     cur = cur[k];
   }
-  return cur;
+  if (typeof cur === 'number') return cur;
+  if (typeof cur === 'string') return cur;
+  if (cur === null || cur === undefined) return '';
+  // Objects/arrays/booleans are not valid input values; show something sane
+  // rather than handing React an object for `value`.
+  return String(cur);
 }
