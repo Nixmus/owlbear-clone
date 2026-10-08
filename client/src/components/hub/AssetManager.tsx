@@ -57,18 +57,33 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
   }, [campaignId]);
 
   async function load() {
-    const [assetsRes, foldersRes] = await Promise.all([
-      api.get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`),
-      api.get<{ folders: AssetFolder[] }>(`/campaigns/${campaignId}/folders`).catch(() => ({
-        folders: [] as AssetFolder[],
-      })),
-    ]);
-    setAssets(assetsRes.assets);
-    setFolders(foldersRes.folders);
-    api
-      .get<{ role: string }>(`/campaigns/${campaignId}`)
-      .then((d) => setCanEdit(d.role === 'owner' || d.role === 'gm'))
-      .catch(() => setCanEdit(false));
+    // Each request fails on its own: one broken endpoint should not wipe out
+    // the assets list too, and the error shown should name the real cause.
+    setError('');
+    try {
+      const assetsRes = await api.get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`);
+      setAssets(assetsRes.assets);
+    } catch (e) {
+      setAssets([]);
+      setError((e as Error).message);
+    }
+
+    try {
+      const foldersRes = await api.get<{ folders: AssetFolder[] }>(
+        `/campaigns/${campaignId}/folders`,
+      );
+      setFolders(foldersRes.folders);
+    } catch {
+      // Folders are optional; without them the browser still lists loose files.
+      setFolders([]);
+    }
+
+    try {
+      const d = await api.get<{ role: string }>(`/campaigns/${campaignId}`);
+      setCanEdit(d.role === 'owner' || d.role === 'gm');
+    } catch {
+      setCanEdit(false);
+    }
   }
 
   /** Uploads land in the folder currently open - no separate target field. */

@@ -53,18 +53,32 @@ export default function CharacterManager({ campaignId }: { campaignId: string })
   }, [campaignId]);
 
   async function load() {
-    const [chars, tpls] = await Promise.all([
-      api.get<{ characters: Character[] }>(`/campaigns/${campaignId}/characters`),
-      api.get<{ templates: SheetTemplate[] }>(`/campaigns/${campaignId}/templates`).catch(() => ({
-        templates: [] as SheetTemplate[],
-      })),
-    ]);
-    setCharacters(chars.characters);
-    setTemplates(tpls.templates);
-    api
-      .get<{ role: string }>(`/campaigns/${campaignId}`)
-      .then((d) => setCanEdit(d.role === 'owner' || d.role === 'gm'))
-      .catch(() => setCanEdit(false));
+    // Fail independently: a missing template endpoint must not blank the
+    // character list as well.
+    try {
+      const chars = await api.get<{ characters: Character[] }>(
+        `/campaigns/${campaignId}/characters`,
+      );
+      setCharacters(chars.characters);
+    } catch {
+      setCharacters([]);
+    }
+
+    try {
+      const tpls = await api.get<{ templates: SheetTemplate[] }>(
+        `/campaigns/${campaignId}/templates`,
+      );
+      setTemplates(tpls.templates);
+    } catch {
+      setTemplates([]);
+    }
+
+    try {
+      const d = await api.get<{ role: string }>(`/campaigns/${campaignId}`);
+      setCanEdit(d.role === 'owner' || d.role === 'gm');
+    } catch {
+      setCanEdit(false);
+    }
   }
 
   async function create() {

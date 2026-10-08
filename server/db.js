@@ -97,7 +97,9 @@ CREATE TABLE IF NOT EXISTS sheet_templates (
 CREATE TABLE IF NOT EXISTS asset_folders (
   id          TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  owner_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
+  visibility  TEXT NOT NULL DEFAULT 'public', -- public | private (owner only)
   created_at  INTEGER NOT NULL,
   UNIQUE (campaign_id, name)
 );
@@ -132,17 +134,17 @@ if (!columnExists('characters', 'template_id')) {
 }
 
 // --- privacy: private items are visible only to their owner ---
-for (const [table, withOwner] of [
-  ['characters', false],
-  ['assets', false],
-  ['asset_folders', false],
-  ['sheet_templates', true],
-]) {
+// Every table here needs visibility, and both asset_folders and
+// sheet_templates need owner_id too. CREATE TABLE IF NOT EXISTS is a no-op on
+// databases that already have the table, so the ALTERs are what actually add
+// the new columns there.
+for (const table of ['characters', 'assets', 'asset_folders', 'sheet_templates']) {
   if (!columnExists(table, 'visibility')) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`);
   }
-  // sheet_templates predates this change without an owner, so it needs both.
-  if (withOwner && !columnExists(table, 'owner_id')) {
+}
+for (const table of ['asset_folders', 'sheet_templates']) {
+  if (!columnExists(table, 'owner_id')) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN owner_id TEXT`);
   }
 }

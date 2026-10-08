@@ -54,7 +54,24 @@ async function request<T>(method: string, url: string, data?: unknown, isForm = 
   }
   const res = await fetch(base() + url, { method, headers, body });
   const text = await res.text();
-  const json = text ? JSON.parse(text) : {};
+  let json: any = {};
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // The server answered with something that is not JSON - typically an HTML
+      // error page, which means the route did not match. Report that plainly
+      // instead of leaking a confusing "Unexpected token '<'" parse error.
+      const preview = text.trim().slice(0, 80).replace(/\s+/g, ' ');
+      const detail =
+        /^\s*<!DOCTYPE/i.test(text) || /^\s*<html/i.test(text)
+          ? '¿La ruta no existe en el servidor? Comprueba que el backend está actualizado y arrancado.'
+          : preview;
+      throw new Error(
+        `${method} ${url} devolvió una respuesta que no es JSON (HTTP ${res.status}). ${detail}`,
+      );
+    }
+  }
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json as T;
 }
