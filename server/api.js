@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import archiver from 'archiver';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -537,10 +538,54 @@ router.get('/campaigns/:id/assets', auth, (req, res) => {
       name: a.name,
       mime: a.mime,
       kind: a.kind,
+      folder: a.folder || '',
       url: a.url,
       createdAt: a.created_at,
     })),
   });
+});
+
+// Move an asset to a folder (or clear it).
+router.patch('/assets/:id', auth, (req, res) => {
+  const a = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found' });
+  if (a.owner_id !== req.user.id) {
+    const { role } = a.campaign_id ? campaignRole(a.campaign_id, req.user.id) : { role: null };
+    if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { folder, name, kind } = body(req);
+  db.prepare(
+    `UPDATE assets SET folder = COALESCE(?, folder), name = COALESCE(?, name), kind = COALESCE(?, kind)
+     WHERE id = ?`,
+  ).run(folder ?? null, name ?? null, kind ?? null, req.params.id);
+  res.json({ ok: true });
+});
+
+// Download all campaign assets as a ZIP (optionally a single folder).
+router.get('/campaigns/:id/assets.zip', auth, (req, res) => {
+  const { role } = campaignRole(req.params.id, req.user.id);
+  if (!role) return res.status(404).json({ error: 'Not found' });
+  const folder = req.query.folder != null ? String(req.query.folder) : null;
+  const rows = db
+    .prepare(
+      folder === null
+        ? 'SELECT * FROM assets WHERE campaign_id = ? ORDER BY folder, created_at'
+        : 'SELECT * FROM assets WHERE campaign_id = ? AND folder = ? ORDER BY created_at',
+    )
+    .all(...(folder === null ? [req.params.id] : [req.params.id, folder]));
+
+  res.attachment(`recursos-${req.params.id}.zip`);
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', () => res.status(500).end());
+  archive.pipe(res);
+  for (const a of rows) {
+    const filePath = path.join(UPLOAD_DIR, path.basename(a.url));
+    if (fs.existsSync(filePath)) {
+      const prefix = a.folder ? `${a.folder}/` : '';
+      archive.file(filePath, { name: `${prefix}${a.name}` });
+    }
+  }
+  archive.finalize();
 });
 
 /* ------------------------------------------------------------------ *
@@ -631,15 +676,15 @@ const upload = multer({
 router.post('/upload', auth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
   const url = `/uploads/${req.file.filename}`;
-  const { campaignId, name, kind, mime } = body(req);
+  const { campaignId, name, kind, mime, folder } = body(req);
   let assetId = null;
   if (campaignId) {
     const { role } = campaignRole(campaignId, req.user.id);
     if (role) {
       assetId = nanoid(12);
       db.prepare(
-        `INSERT INTO assets (id, campaign_id, owner_id, name, mime, kind, url, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO assets (id, campaign_id, owner_id, name, mime, kind, folder, url, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         assetId,
         campaignId,
@@ -647,6 +692,7 @@ router.post('/upload', auth, upload.single('file'), (req, res) => {
         name || req.file.originalname,
         mime || req.file.mimetype,
         kind || 'image',
+        folder || '',
         url,
         now(),
       );

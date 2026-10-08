@@ -17,6 +17,28 @@ function base() {
   return configured ? `${configured.replace(/\/$/, '')}/api` : '/api';
 }
 
+/** Upload an image file and return the stored URL path. */
+export async function uploadImage(file: File, opts?: { campaignId?: string; kind?: string }): Promise<string> {
+  const form = new FormData();
+  form.append('file', file);
+  if (opts?.campaignId) form.append('campaignId', opts.campaignId);
+  if (opts?.kind) form.append('kind', opts.kind);
+  form.append('name', file.name);
+  const res = await fetch(`${base()}/upload`, {
+    method: 'POST',
+    headers: tokenHeader(),
+    body: form,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Error al subir la imagen');
+  return json.url as string;
+}
+
+function tokenHeader(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(method: string, url: string, data?: unknown, isForm = false): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -52,6 +74,24 @@ export function assetUrl(url: string | null | undefined): string | null {
   const configured = import.meta.env.VITE_API_URL as string | undefined;
   if (configured) return `${configured.replace(/\/$/, '')}${url}`;
   return url;
+}
+
+/** Download a campaign's assets as a ZIP via an authenticated fetch + blob. */
+export async function downloadAssetZip(campaignId: string, folder?: string): Promise<void> {
+  const q = folder != null ? `?folder=${encodeURIComponent(folder)}` : '';
+  const res = await fetch(`${base()}/campaigns/${campaignId}/assets.zip${q}`, {
+    headers: tokenHeader(),
+  });
+  if (!res.ok) throw new Error('No se pudo generar el ZIP');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = folder ? `recursos-${folder}.zip` : `recursos-${campaignId}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /* ------------------------------------------------------------------ *
@@ -127,6 +167,7 @@ export interface Asset {
   name: string;
   mime: string;
   kind: string;
+  folder: string;
   url: string;
   createdAt: number;
 }

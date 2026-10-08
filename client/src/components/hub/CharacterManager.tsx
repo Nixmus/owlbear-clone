@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { api, type Character } from '../../api';
+import { useEffect, useRef, useState } from 'react';
+import { api, assetUrl, uploadImage, type Character } from '../../api';
 import Icon from '../Icon';
 
 export default function CharacterManager({ campaignId }: { campaignId: string }) {
@@ -109,19 +109,31 @@ function CharacterSheet({
 }) {
   const [data, setData] = useState<Record<string, any>>(character.data);
   const [name, setName] = useState(character.name);
+  const [portraitUrl, setPortraitUrl] = useState<string | null>(character.portraitUrl);
   const [saved, setSaved] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setData(character.data);
     setName(character.name);
-  }, [character.id, character.data, character.name]);
+    setPortraitUrl(character.portraitUrl);
+  }, [character.id, character.data, character.name, character.portraitUrl]);
 
   const set = (path: string, value: unknown) => {
     setData((d) => setPath({ ...d }, path, value));
   };
 
+  async function sendLogo(file: File) {
+    try {
+      const url = await uploadImage(file);
+      setPortraitUrl(url);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
   async function save() {
-    await api.patch(`/characters/${character.id}`, { name, data });
+    await api.patch(`/characters/${character.id}`, { name, data, portraitUrl });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     onSaved();
@@ -137,11 +149,44 @@ function CharacterSheet({
 
   return (
     <div className="hub-card sheet">
-      <div className="row spread">
-        <input className="sheet-name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="icon-btn danger" title="Eliminar personaje" onClick={remove}>
-          <Icon name="trash" size={15} />
-        </button>
+      <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
+        <div className="portrait-edit" onClick={() => fileRef.current?.click()} title="Subir foto">
+          {portraitUrl ? (
+            <img src={assetUrl(portraitUrl) || portraitUrl} alt="" />
+          ) : (
+            <span>{name.slice(0, 1).toUpperCase()}</span>
+          )}
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) sendLogo(f);
+          }}
+        />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="row spread">
+            <input className="sheet-name" value={name} onChange={(e) => setName(e.target.value)} />
+            <button className="icon-btn danger" title="Eliminar personaje" onClick={remove}>
+              <Icon name="trash" size={15} />
+            </button>
+          </div>
+          <div className="field">
+            <label>Palabra clave (hablar en el chat)</label>
+            <input
+              placeholder="p. ej. Ale"
+              value={data.keyword || ''}
+              onChange={(e) => set('keyword', e.target.value)}
+            />
+            <span className="hint">
+              Escribe <b>{data.keyword || 'palabra'}: tu mensaje</b> en el chat para hablar como este
+              personaje.
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="row">

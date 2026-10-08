@@ -40,6 +40,7 @@ function emptyRoom(id) {
     drawings: [],
     fog: [],
     chat: [],
+    log: [],
     scenes: [scene],
     activeSceneId: scene.id,
     updatedAt: Date.now(),
@@ -206,6 +207,12 @@ function applyAction(state, action, role = 'player') {
       state.chat.push(action.message);
       if (state.chat.length > 300) state.chat.splice(0, state.chat.length - 300);
       return true;
+    case 'log.add':
+      if (!action.entry?.id) return false;
+      if (!state.log) state.log = [];
+      if (!state.log.some((e) => e.id === action.entry.id)) state.log.push(action.entry);
+      if (state.log.length > 500) state.log.splice(0, state.log.length - 500);
+      return true;
     default:
       return false;
   }
@@ -305,8 +312,21 @@ wss.on('connection', (ws) => {
       roster.set(ws.clientId, player);
 
       const { state } = getRoom(roomId);
+      // Record the join in the shared history.
+      if (!state.log) state.log = [];
+      state.log.push({
+        id: nanoid(),
+        ts: Date.now(),
+        actor: player.name,
+        actorId: player.id,
+        kind: 'join',
+        text: `${player.name} entró a la mesa (${role === 'gm' ? 'director' : 'jugador'})`,
+      });
+      if (state.log.length > 500) state.log.splice(0, state.log.length - 500);
+
       send(ws, { type: 'init', clientId: ws.clientId, state, players: [...roster.values()] });
       broadcast(roomId, { type: 'players', players: [...roster.values()] });
+      persist(roomId);
       return;
     }
 

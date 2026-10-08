@@ -62,12 +62,31 @@ export interface Player {
   joinedAt: number;
 }
 
+export interface GameLogEntry {
+  id: string;
+  ts: number;
+  actor: string; // player name
+  actorId: string;
+  kind:
+    | 'join'
+    | 'leave'
+    | 'token.move'
+    | 'token.add'
+    | 'token.remove'
+    | 'token.condition'
+    | 'scene.activate'
+    | 'dice'
+    | 'note';
+  text: string;
+}
+
 export interface RoomState {
   id: string;
   tokens: Token[];
   drawings: Drawing[];
   fog: FogShape[];
   chat: ChatMessage[];
+  log: GameLogEntry[];
   scenes: Scene[];
   activeSceneId: string;
   updatedAt: number;
@@ -87,7 +106,8 @@ export type Action =
   | { kind: 'drawing.clear'; sceneId: string }
   | { kind: 'fog.add'; shape: FogShape }
   | { kind: 'fog.clear'; sceneId: string }
-  | { kind: 'chat.add'; message: ChatMessage };
+  | { kind: 'chat.add'; message: ChatMessage }
+  | { kind: 'log.add'; entry: GameLogEntry };
 
 export type Tool =
   | 'select'

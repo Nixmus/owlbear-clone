@@ -8,6 +8,7 @@ export default function Chat() {
   const chat = useStore((s) => s.state.chat);
   const self = useStore((s) => s.self);
   const dispatch = useStore((s) => s.dispatch);
+  const characters = useStore((s) => s.characters);
   const [text, setText] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
@@ -50,6 +51,28 @@ export default function Chat() {
         });
       }
       return;
+    }
+
+    // Character keyword: "Palabra: mensaje" speaks as that character.
+    const keywordMatch = value.match(/^(\w+):\s*(.+)$/);
+    if (keywordMatch) {
+      const [, keyword, message] = keywordMatch;
+      const character = characters.find(
+        (c) => c.data?.keyword?.toLowerCase() === keyword.toLowerCase(),
+      );
+      if (character) {
+        dispatch({
+          kind: 'chat.add',
+          message: {
+            id: nanoid(),
+            author: character.name,
+            color: self.color,
+            text: message,
+            ts: Date.now(),
+          },
+        });
+        return;
+      }
     }
 
     dispatch({

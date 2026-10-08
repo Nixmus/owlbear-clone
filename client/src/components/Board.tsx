@@ -38,6 +38,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   const previewSceneId = useStore((s) => s.previewSceneId);
   const dispatch = useStore((s) => s.dispatch);
   const send = useStore((s) => s.send);
+  const logEvent = useStore((s) => s.logEvent);
 
   // The GM can preview a non-active scene locally without changing it for others.
   const activeScene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
@@ -307,6 +308,11 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   function onPointerUp(e: React.PointerEvent) {
     if (!drag) return;
     switch (drag.type) {
+      case 'token': {
+        const t = state.tokens.find((x) => x.id === drag.id);
+        if (t && drag.moved) logEvent({ kind: 'token.move', text: `${self.name} movió "${t.name}"` });
+        break;
+      }
       case 'draw': {
         if (!draftPoints || draftPoints.length < 4) break;
         const drawing: Drawing = {

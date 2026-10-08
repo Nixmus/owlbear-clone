@@ -5,11 +5,14 @@ import ToolRail from './components/ToolRail';
 import ScenePanel from './components/ScenePanel';
 import Inspector from './components/Inspector';
 import Chat from './components/Chat';
+import History from './components/History';
 import JoinDialog from './components/JoinDialog';
 import UserManager from './components/UserManager';
 import Hub from './components/Hub';
+import Brand from './components/Brand';
 import { useStore } from './store';
 import { useAuth } from './auth';
+import { api } from './api';
 import Icon from './components/Icon';
 import type { Tool } from './types';
 import type { Role } from './permissions';
@@ -77,7 +80,9 @@ function Table() {
   const state = useStore((s) => s.state);
   const dispatch = useStore((s) => s.dispatch);
   const self = useStore((s) => s.self);
-  const isLogged = useAuth((s) => !!s.user);
+  const connect = useStore((s) => s.connect);
+  const user = useAuth((s) => s.user);
+  const isLogged = !!user;
 
   const role = (self.role as Role) || 'player';
 
@@ -116,6 +121,33 @@ function Table() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load characters for keyword chat (only when logged in).
+  useEffect(() => {
+    if (!user) return;
+    api
+      .get<{ characters: import('./api').Character[] }>('/characters')
+      .then((d) => useStore.getState().setCharacters(d.characters))
+      .catch(() => {
+        /* not logged in or no characters */
+      });
+  }, [user]);
+
+  // Players with a profile join directly using their account; no dialog needed.
+  useEffect(() => {
+    if (user && status === 'disconnected') {
+      useStore.setState({
+        self: {
+          ...useStore.getState().self,
+          name: user.displayName,
+          color: localStorage.getItem('vtt.color') || '#7dd3fc',
+        },
+      });
+      const room = new URLSearchParams(location.search).get('room') || 'pickup';
+      connect(room);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   const scene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
   const sceneDrawings = useMemo(
     () => state.drawings.filter((d) => d.sceneId === scene?.id),
@@ -144,6 +176,7 @@ function Table() {
         owner: role === 'player' ? self.id : null,
       },
     });
+    useStore.getState().logEvent({ kind: 'token.add', text: `${self.name} añadió un token` });
   };
 
   const undoDrawing = () => {
@@ -213,6 +246,7 @@ function Table() {
         />
         <Inspector selectedId={selectedId} role={role} />
         <Chat />
+        <History />
       </div>
 
       <button className="leave-btn" onClick={leaveTable} title="Salir de esta mesa">
@@ -221,7 +255,21 @@ function Table() {
 
       {showUsers && <UserManager onClose={() => setShowUsers(false)} />}
 
-      {!joined && <JoinDialog />}
+      {!joined && !isLogged && <JoinDialog />}
+      {!joined && isLogged && (
+        <div className="overlay">
+          <div className="card">
+            <h1>
+              <Brand withName={false} /> Conectando…
+            </h1>
+            <p className="muted">
+              {status === 'connecting'
+                ? 'Entrando a la mesa con tu perfil.'
+                : 'No se pudo conectar. Comprobando de nuevo…'}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

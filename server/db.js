@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS assets (
   name        TEXT NOT NULL,
   mime        TEXT NOT NULL,
   kind        TEXT NOT NULL DEFAULT 'image', -- image | map | token | audio | doc
+  folder      TEXT NOT NULL DEFAULT '',     -- grouping folder
   url         TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 );
@@ -96,5 +97,14 @@ CREATE TABLE IF NOT EXISTS password_resets (
   created_at INTEGER NOT NULL
 );
 `);
+
+// --- lightweight migrations for existing databases ---
+function columnExists(table, column) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  return cols.some((c) => c.name === column);
+}
+if (!columnExists('assets', 'folder')) {
+  db.exec("ALTER TABLE assets ADD COLUMN folder TEXT NOT NULL DEFAULT ''");
+}
 
 export default db;

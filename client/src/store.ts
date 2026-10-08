@@ -26,6 +26,7 @@ interface Store {
   self: Presence;
   players: Player[];
   state: RoomState;
+  characters: import('./api').Character[];
   cursors: Record<string, { x: number; y: number; sceneId: string; color: string; name: string; ts: number }>;
   pings: Record<string, { x: number; y: number; sceneId: string; color: string; name: string; kind: string; ts: number }>;
   previewSceneId: string | null;
@@ -37,10 +38,14 @@ interface Store {
   setSelf: (patch: Partial<Presence>) => void;
   setPlayers: (players: Player[]) => void;
   setState: (state: RoomState) => void;
+  setCharacters: (characters: import('./api').Character[]) => void;
   setStatus: (status: Status) => void;
   setCursor: (from: string, cursor: { x: number; y: number; sceneId: string }) => void;
   addPing: (from: string, ping: { x: number; y: number; sceneId: string; kind: string }) => void;
   setPreviewScene: (id: string | null) => void;
+  logEvent: (
+    entry: Omit<import('./types').GameLogEntry, 'id' | 'ts' | 'actor' | 'actorId'>,
+  ) => void;
   setRole: (targetId: string, role: 'gm' | 'player') => void;
 }
 
@@ -62,6 +67,7 @@ function emptyState(roomId: string): RoomState {
     drawings: [],
     fog: [],
     chat: [],
+    log: [],
     scenes: [scene],
     activeSceneId: scene.id,
     updatedAt: Date.now(),
@@ -130,6 +136,12 @@ export function reduce(state: RoomState, action: Action): RoomState {
       if (chat.length > 300) chat.splice(0, chat.length - 300);
       return { ...state, chat };
     }
+    case 'log.add': {
+      if (state.log.some((e) => e.id === action.entry.id)) return state;
+      const log = [...state.log, action.entry];
+      if (log.length > 500) log.splice(0, log.length - 500);
+      return { ...state, log };
+    }
     default:
       return state;
   }
@@ -147,6 +159,7 @@ export const useStore = create<Store>((set, get) => ({
   self: { id: '', name: 'Player', color: '#7dd3fc', role: 'player' },
   players: [],
   state: emptyState('local'),
+  characters: [],
   cursors: {},
   pings: {},
   previewSceneId: null,
@@ -155,6 +168,7 @@ export const useStore = create<Store>((set, get) => ({
   setStatus: (status) => set({ status }),
   setState: (state) => set({ state }),
   setPlayers: (players) => set({ players }),
+  setCharacters: (characters) => set({ characters }),
 
   setSelf: (patch) => {
     const self = { ...get().self, ...patch };
@@ -167,6 +181,20 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setPreviewScene: (id) => set({ previewSceneId: id }),
+
+  logEvent: (entry) => {
+    const { self } = get();
+    get().dispatch({
+      kind: 'log.add',
+      entry: {
+        id: nanoid(),
+        ts: Date.now(),
+        actor: self.name,
+        actorId: self.id,
+        ...entry,
+      },
+    });
+  },
 
   send: (msg) => {
     if (socket && socket.readyState === WebSocket.OPEN) {
