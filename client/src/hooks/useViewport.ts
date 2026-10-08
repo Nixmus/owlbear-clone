@@ -74,5 +74,96 @@ export function useViewport(ref: React.RefObject<HTMLElement | null>) {
     return () => el.removeEventListener('wheel', onWheel);
   }, [ref, zoomAt]);
 
-  return { viewport, setViewport, screenToWorld, zoomAt, centerOn, fit, viewportRef };
+  /**
+   * Pinch to zoom. Tracked here so the gesture math sits with the rest of the
+   * viewport handling; the board only reports which pointers are down.
+   */
+  type PinchPoint = { id: number; x: number; y: number };
+  type PinchState = {
+    points: PinchPoint[];
+    startDist: number;
+    startScale: number;
+    startMid: { x: number; y: number } | null;
+    moved: boolean;
+  };
+  const pinchRef = useRef<PinchState | null>(null);
+
+  const pinchBegin = useCallback((id: number, clientX: number, clientY: number) => {
+    const p = pinchRef.current;
+    if (!p) {
+      pinchRef.current = {
+        points: [{ id, x: clientX, y: clientY }],
+        startDist: 0,
+        startScale: viewportRef.current.scale,
+        startMid: null,
+        moved: false,
+      };
+      return;
+    }
+    if (p.points.some((q) => q.id === id)) return;
+    p.points.push({ id, x: clientX, y: clientY });
+    if (p.points.length === 2) {
+      const [a, b] = p.points;
+      p.startDist = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      p.startMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      p.moved = false;
+    }
+  }, []);
+
+  /** Returns true while a pinch is active, so the board can ignore drawing. */
+  const pinchMove = useCallback(
+    (id: number, clientX: number, clientY: number) => {
+      const p = pinchRef.current;
+      if (!p || p.points.length < 2) return false;
+      const pt = p.points.find((q) => q.id === id);
+      if (!pt) return false;
+      pt.x = clientX;
+      pt.y = clientY;
+      const [a, b] = p.points;
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      if (!dist || !p.startDist) return false;
+      p.moved = true;
+      const target = clamp((dist / p.startDist) * p.startScale, 0.1, 5);
+      const mid = p.startMid || { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const rect = ref.current?.getBoundingClientRect();
+      if (!rect) return false;
+      const v = viewportRef.current;
+      const px = mid.x - rect.left;
+      const py = mid.y - rect.top;
+      const k = target / v.scale;
+      setViewport({
+        scale: target,
+        x: px - (px - v.x) * k,
+        y: py - (py - v.y) * k,
+      });
+      return true;
+    },
+    [ref, setViewport],
+  );
+
+  /** True if the gesture that just ended was a pinch, not a single drag. */
+  const pinchEnd = useCallback((id: number) => {
+    const p = pinchRef.current;
+    if (!p) return false;
+    p.points = p.points.filter((q) => q.id !== id);
+    if (p.points.length < 2) {
+      const wasPinch = p.moved;
+      pinchRef.current = null;
+      return wasPinch;
+    }
+    return false;
+  }, []);
+
+  return {
+    viewport,
+    setViewport,
+    screenToWorld,
+    zoomAt,
+    centerOn,
+    fit,
+    viewportRef,
+    pinchBegin,
+    pinchMove,
+    pinchEnd,
+  };
 }

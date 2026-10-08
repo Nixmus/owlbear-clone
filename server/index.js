@@ -129,6 +129,11 @@ function merge(target, patch) {
   return target;
 }
 
+function clamp01(n) {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(1, Math.max(0, n));
+}
+
 function applyAction(state, action, role = 'player', actorUserId = null) {
   if (!action || typeof action !== 'object') return false;
   const isGM = role === 'gm';
@@ -186,14 +191,27 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
     case 'token.remove':
       state.tokens = state.tokens.filter((t) => t.id !== action.id);
       return true;
-    case 'drawing.add':
+    case 'drawing.add': {
       if (!action.drawing?.id) return false;
-      if (!state.drawings.some((x) => x.id === action.drawing.id)) state.drawings.push(action.drawing);
+      if (state.drawings.some((x) => x.id === action.drawing.id)) return false;
+      const incoming = action.drawing;
+      // Normalize the optional paint properties instead of trusting the client.
+      const fill = incoming.fill == null ? null : String(incoming.fill);
+      const opacity = Number(incoming.opacity);
+      state.drawings.push({
+        ...incoming,
+        fill,
+        opacity: Number.isFinite(opacity) ? clamp01(opacity) : 1,
+      });
       return true;
+    }
     case 'drawing.update': {
       const d = state.drawings.find((x) => x.id === action.id);
       if (!d) return false;
-      merge(d, action.patch);
+      const patch = { ...(action.patch || {}) };
+      if ('opacity' in patch) patch.opacity = clamp01(Number(patch.opacity));
+      if ('fill' in patch) patch.fill = patch.fill == null ? null : String(patch.fill);
+      merge(d, patch);
       return true;
     }
     case 'drawing.remove':

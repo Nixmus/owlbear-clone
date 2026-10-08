@@ -26,6 +26,12 @@ interface Props {
   setFogOccludes: (b: boolean) => void;
   gmFogTransparent: boolean;
   setGmFogTransparent: (b: boolean) => void;
+  fillEnabled: boolean;
+  setFillEnabled: (b: boolean) => void;
+  fillColor: string;
+  setFillColor: (c: string) => void;
+  fillOpacity: number;
+  setFillOpacity: (n: number) => void;
 }
 
 export default function ScenePanel(props: Props) {
@@ -239,6 +245,37 @@ export default function ScenePanel(props: Props) {
                   onChange={(e) => props.setStrokeWidth(+e.target.value)}
                 />
               </div>
+
+              <label className="row checklist" title="Rellena rectángulos y círculos con el color de abajo">
+                <input
+                  type="checkbox"
+                  checked={props.fillEnabled}
+                  onChange={(e) => props.setFillEnabled(e.target.checked)}
+                />
+                Rellenar formas
+              </label>
+              {props.fillEnabled && (
+                <>
+                  <div className="field">
+                    <label>Color de relleno</label>
+                    <input
+                      type="color"
+                      value={props.fillColor}
+                      onChange={(e) => props.setFillColor(e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Opacidad: {Math.round(props.fillOpacity * 100)}%</label>
+                    <input
+                      type="range"
+                      min={5}
+                      max={100}
+                      value={Math.round(props.fillOpacity * 100)}
+                      onChange={(e) => props.setFillOpacity(+e.target.value / 100)}
+                    />
+                  </div>
+                </>
+              )}
               <div className="field">
                 <label>Tamaño del pincel de niebla: {props.brushSize}px</label>
                 <input

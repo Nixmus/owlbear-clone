@@ -90,6 +90,9 @@ function Table() {
   const [color, setColor] = useState(localStorage.getItem('vtt.drawColor') || '#fbbf24');
   const [strokeWidth, setStrokeWidth] = useState(4);
   const [brushSize, setBrushSize] = useState(90);
+  const [fillEnabled, setFillEnabled] = useState(false);
+  const [fillColor, setFillColor] = useState('#ffffff33');
+  const [fillOpacity, setFillOpacity] = useState(0.35);
   const [fogOccludes, setFogOccludes] = useState(true);
   const [gmFogTransparent, setGmFogTransparent] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -244,6 +247,9 @@ function Table() {
         fogOccludes={fogOccludes}
         brushSize={brushSize}
         gmFogTransparent={gmFogTransparent}
+        fillEnabled={fillEnabled}
+        fillColor={fillColor}
+        fillOpacity={fillOpacity}
       />
 
       <div className="side">
@@ -259,6 +265,12 @@ function Table() {
           setFogOccludes={setFogOccludes}
           gmFogTransparent={gmFogTransparent}
           setGmFogTransparent={setGmFogTransparent}
+          fillEnabled={fillEnabled}
+          setFillEnabled={setFillEnabled}
+          fillColor={fillColor}
+          setFillColor={setFillColor}
+          fillOpacity={fillOpacity}
+          setFillOpacity={setFillOpacity}
         />
         <Inspector selectedId={selectedId} role={role} />
         <Chat />

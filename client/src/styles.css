@@ -242,6 +242,22 @@ textarea {
   position: relative;
   overflow: hidden;
   background: #0e0e12;
+  /* Without this the browser claims the gesture for page scrolling and pinch
+     zoom, so drawing tools and zooming stop responding on touch devices.
+     The JS also sets it inline; this keeps it enforced by CSS. */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Interactive children must not swallow the gesture either. */
+.board button,
+.board .token,
+.board .tool,
+.board .icon-btn {
+  touch-action: none;
 }
 
 .world {
@@ -2194,11 +2210,21 @@ textarea {
     border-top: 1px solid var(--border);
     padding: 6px 8px;
     gap: 6px;
+    /* Let the rail pan horizontally while taps still register on the buttons. */
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tools::-webkit-scrollbar {
+    display: none;
   }
   .tool {
     width: 44px;
     height: 44px;
     flex: none;
+    /* Big enough to hit with a thumb, and never selected by a long press. */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   .tool-divider {
     width: 1px;

@@ -38,6 +38,10 @@ export interface Drawing {
   color: string;
   width: number;
   points: number[]; // flattened [x1,y1,x2,y2,...]
+  /** Fill for closed shapes (rect/circle); null or undefined means no fill. */
+  fill?: string | null;
+  /** 0..1. Defaults to fully opaque when absent. */
+  opacity?: number;
 }
 
 /**

@@ -14,6 +14,9 @@ interface Props {
   fogOccludes: boolean;
   brushSize: number;
   gmFogTransparent: boolean;
+  fillEnabled: boolean;
+  fillColor: string;
+  fillOpacity: number;
 }
 
 type Drag =
@@ -27,9 +30,32 @@ type Drag =
   | { type: 'marquee' }
   | null;
 
-export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize, gmFogTransparent }: Props) {
+export default function Board({
+  tool,
+  color,
+  strokeWidth,
+  fogOccludes,
+  brushSize,
+  gmFogTransparent,
+  fillEnabled,
+  fillColor,
+  fillOpacity,
+}: Props) {
   const boardRef = useRef<HTMLDivElement>(null);
-  const { viewport, setViewport, screenToWorld, centerOn, fit } = useViewport(boardRef);
+  const {
+    viewport,
+    setViewport,
+    screenToWorld,
+    centerOn,
+    fit,
+    zoomAt,
+    pinchBegin,
+    pinchMove,
+    pinchEnd,
+  } = useViewport(boardRef);
+  // While a pinch is in progress the board must not treat the moving finger as
+  // a drawing stroke, otherwise zooming leaves ink behind.
+  const pinchingRef = useRef(false);
 
   const state = useStore((s) => s.state);
   const self = useStore((s) => s.self);
@@ -184,6 +210,11 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
 
   function onPointerDown(e: React.PointerEvent) {
     if (!scene) return;
+    // Track every pointer so a second finger can start a pinch. A fresh press
+    // always means the previous gesture finished, so the guard resets here.
+    pinchingRef.current = false;
+    pinchBegin(e.pointerId, e.clientX, e.clientY);
+    if (pinchingRef.current) return;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     const w = worldAt(e);
 
@@ -249,6 +280,11 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    if (pinchMove(e.pointerId, e.clientX, e.clientY)) {
+      pinchingRef.current = true;
+      return;
+    }
+    if (pinchingRef.current) return;
     const w = worldAt(e);
 
     // broadcast our cursor (throttled)
@@ -319,6 +355,16 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   }
 
   function onPointerUp(e: React.PointerEvent) {
+    if (pinchEnd(e.pointerId)) {
+      // The gesture was a pinch: drop any half-started drag so nothing commits.
+      setDrag(null);
+      setDraftPoints(null);
+      setDraftFog(null);
+      setDraftErase(null);
+      // Stay "pinching" until every finger is up, so no stray stroke starts
+      // mid-gesture; it clears on the next pointerdown.
+      return;
+    }
     if (!drag) return;
     switch (drag.type) {
       case 'token': {
@@ -334,6 +380,8 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
           kind: tool as Drawing['kind'],
           color,
           width: strokeWidth,
+          fill: fillEnabled ? fillColor : null,
+          opacity: fillOpacity,
           points: draftPoints,
         };
         dispatch({ kind: 'drawing.add', drawing });
@@ -508,9 +556,13 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
               {sceneErasers.map((e) => (
                 <ErasePath key={e.id} width={e.width} points={e.points} />
               ))}
-              {draftErase && <ErasePath width={eraserRadius * 2} points={draftErase} />}
             </mask>
           </defs>
+
+          {/* Committed drawings are masked, so the eraser hides what was already
+              there. The in-progress stroke is deliberately rendered outside the
+              mask: inside it, every previous erase hole would swallow the new
+              stroke and you could never paint over an erased area. */}
           <g mask={`url(#erase-mask-${scene.id})`}>
             {sceneDrawings.map((d) => (
               <g
@@ -528,19 +580,28 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
                 <DrawingShape d={d} selected={d.id === selectedDrawingId} />
               </g>
             ))}
-            {draftPoints && (
-              <DrawingShape
-                d={{
-                  id: 'draft',
-                  sceneId: scene.id,
-                  kind: tool as Drawing['kind'],
-                  color: color + 'cc',
-                  width: strokeWidth,
-                  points: draftPoints,
-                }}
-              />
-            )}
           </g>
+
+          {/* Live preview of the stroke being drawn, and of the eraser in use. */}
+          {draftPoints && (
+            <DrawingShape
+              d={{
+                id: 'draft',
+                sceneId: scene.id,
+                kind: tool as Drawing['kind'],
+                color,
+                width: strokeWidth,
+                fill: fillEnabled ? fillColor : null,
+                opacity: fillOpacity,
+                points: draftPoints,
+              }}
+            />
+          )}
+          {draftErase && (
+            <g opacity={0.75} style={{ pointerEvents: 'none' }}>
+              <ErasePath width={eraserRadius * 2} points={draftErase} />
+            </g>
+          )}
 
           {/* Ruler */}
           {ruler && drag?.type === 'ruler' && (
@@ -638,6 +699,28 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
             {Math.round(viewport.scale * 100)}%
           </span>
+          <button
+            className="btn sm"
+            onClick={() => {
+              const rect = boardRef.current?.getBoundingClientRect();
+              if (rect) zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1 / 1.2);
+            }}
+            title="Alejar"
+            aria-label="Alejar"
+          >
+            −
+          </button>
+          <button
+            className="btn sm"
+            onClick={() => {
+              const rect = boardRef.current?.getBoundingClientRect();
+              if (rect) zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1.2);
+            }}
+            title="Acercar"
+            aria-label="Acercar"
+          >
+            +
+          </button>
         </div>
       </div>
 
@@ -760,12 +843,17 @@ function pointSegDist(p: Vec, a: Vec, b: Vec): number {
 function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hit?: boolean }) {
   if (d.points.length < 4) return null;
   const [x1, y1, x2, y2] = d.points;
+  const opacity = d.opacity ?? 1;
+  // Only closed shapes can be filled; the stroke layer above stays on top.
+  const fillable = d.kind === 'rect' || d.kind === 'circle';
+  const fill = hit ? 'none' : fillable && d.fill ? d.fill : 'none';
   const common = {
     stroke: hit ? 'transparent' : selected ? 'var(--accent)' : d.color,
     strokeWidth: hit ? Math.max(d.width, 16) : selected ? d.width + 2 : d.width,
-    fill: 'none',
+    fill,
     strokeLinecap: 'round' as const,
     pointerEvents: hit ? ('stroke' as const) : ('none' as const),
+    opacity: hit ? 1 : opacity,
   };
   switch (d.kind) {
     case 'pen': {
