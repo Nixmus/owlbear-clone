@@ -12,6 +12,9 @@ import Icon from '../Icon';
 import SearchField from '../SearchField';
 import VisibilityToggle from '../VisibilityToggle';
 
+/** Sentinel for the root drop target; folder names can't contain it. */
+const ROOT = '\u0000root';
+
 const KINDS = [
   { value: 'image', label: 'Imagen' },
   { value: 'map', label: 'Mapa' },
@@ -127,6 +130,27 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     setSelectedId(null);
     load();
   }
+
+  /** Move an asset into another folder (or to the root). Optimistic. */
+  async function moveAsset(asset: Asset, toFolder: string) {
+    if ((asset.folder || '') === toFolder) return;
+    const previous = asset.folder || '';
+    setAssets((cur) =>
+      cur.map((a) => (a.id === asset.id ? { ...a, folder: toFolder } : a)),
+    );
+    try {
+      await api.patch(`/assets/${asset.id}`, { folder: toFolder });
+    } catch (e) {
+      setAssets((cur) =>
+        cur.map((a) => (a.id === asset.id ? { ...a, folder: previous } : a)),
+      );
+      setError((e as Error).message);
+    }
+  }
+
+  const [movePickerId, setMovePickerId] = useState<string | null>(null);
+  // Folder name being hovered as a drop target, or `__root__` for the root.
+  const [dropFolder, setDropFolder] = useState<string | null>(null);
 
   function copyUrl(url: string) {
     navigator.clipboard?.writeText(assetUrl(url) || url);
@@ -431,8 +455,25 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
       <div className="fm-body">
         <aside className="fm-side">
           <button
-            className={`fm-side-item ${cwd === '' ? 'active' : ''}`}
+            className={`fm-side-item ${cwd === '' ? 'active' : ''} ${
+              dropFolder === ROOT ? 'drag-over' : ''
+            }`}
             onClick={() => openFolder('')}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes('application/x-asset-id')) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              setDropFolder(ROOT);
+            }}
+            onDragLeave={() => setDropFolder((t) => (t === ROOT ? null : t))}
+            onDrop={(e) => {
+              const id = e.dataTransfer.getData('application/x-asset-id');
+              setDropFolder(null);
+              if (!id) return;
+              e.preventDefault();
+              const asset = assets.find((x) => x.id === id);
+              if (asset) void moveAsset(asset, '');
+            }}
           >
             <Icon name="home" size={15} />
             <span>Todos los recursos</span>
@@ -529,7 +570,14 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             setDropActive(true);
           }}
           onDragOver={(e) => {
-            if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+            // Accept both real files from the OS and our own asset drags, so
+            // dropping a card on empty space files it into the open folder.
+            if (
+              e.dataTransfer.types.includes('Files') ||
+              e.dataTransfer.types.includes('application/x-asset-id')
+            ) {
+              e.preventDefault();
+            }
           }}
           onDragLeave={() => {
             dragDepth.current = Math.max(0, dragDepth.current - 1);
@@ -539,6 +587,13 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             e.preventDefault();
             dragDepth.current = 0;
             setDropActive(false);
+            setDropFolder(null);
+            const assetId = e.dataTransfer.getData('application/x-asset-id');
+            if (assetId) {
+              const asset = assets.find((x) => x.id === assetId);
+              if (asset) void moveAsset(asset, cwd);
+              return;
+            }
             void onFiles(e.dataTransfer.files);
           }}
         >
@@ -547,7 +602,28 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             const isPrivate = folder?.visibility === 'private';
             const count = assets.filter((a) => a.folder === f).length;
             return (
-              <button key={f} className="fm-item fm-folder" onClick={() => openFolder(f)}>
+              <button
+                key={f}
+                className={`fm-item fm-folder ${dropFolder === f ? 'drag-over' : ''}`}
+                onClick={() => openFolder(f)}
+                onDragOver={(e) => {
+                  // Only accept our own asset drags, not files from outside.
+                  if (!e.dataTransfer.types.includes('application/x-asset-id')) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  setDropFolder(f);
+                }}
+                onDragLeave={() => setDropFolder((t) => (t === f ? null : t))}
+                onDrop={(e) => {
+                  const id = e.dataTransfer.getData('application/x-asset-id');
+                  setDropFolder(null);
+                  if (!id) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const asset = assets.find((x) => x.id === id);
+                  if (asset) void moveAsset(asset, f);
+                }}
+              >
                 <span className="fm-thumb">
                   <Icon name={isPrivate ? 'lock' : 'folder'} size={34} />
                 </span>
@@ -564,6 +640,11 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             <div
               key={a.id}
               className={`fm-item ${selectedId === a.id ? 'selected' : ''}`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('application/x-asset-id', a.id);
+                e.dataTransfer.effectAllowed = 'move';
+              }}
               onClick={() => setSelectedId(a.id)}
               onDoubleClick={() => openAsset(a)}
               role="button"
@@ -593,6 +674,41 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
                   onChange={(next) => setAssetVisibility(a, next)}
                   label={`Visibilidad de ${a.name}`}
                 />
+                <div className="fm-move">
+                  <button
+                    className="icon-btn"
+                    title="Mover a otra carpeta"
+                    aria-label={`Mover ${a.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMovePickerId(movePickerId === a.id ? null : a.id);
+                    }}
+                  >
+                    <Icon name="folderOpen" size={14} />
+                  </button>
+                  {movePickerId === a.id && (
+                    <select
+                      className="fm-select fm-move-select"
+                      value={a.folder || ''}
+                      aria-label={`Carpeta destino para ${a.name}`}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        void moveAsset(a, e.target.value);
+                        setMovePickerId(null);
+                      }}
+                      onBlur={() => setMovePickerId(null)}
+                    >
+                      {folderNames.map((f) => (
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
+                      ))}
+                      {/* Only offer the root when it is not where it already is. */}
+                      {a.folder ? <option value="">Sin carpeta (raíz)</option> : null}
+                    </select>
+                  )}
+                </div>
                 <button
                   className="icon-btn"
                   title="Copiar URL"

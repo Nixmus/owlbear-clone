@@ -1659,6 +1659,29 @@ textarea {
   display: flex;
   gap: 4px;
   margin-top: 6px;
+  align-items: center;
+}
+
+/* Move-to-folder control: a button that reveals a destination picker. */
+.fm-move {
+  position: relative;
+  display: inline-flex;
+}
+.fm-move-select {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  width: 170px;
+  max-width: 60vw;
+  box-shadow: 0 8px 20px #000a;
+}
+/* Folders highlight while an asset card is dragged over them. */
+.fm-folder.drag-over,
+.fm-side-item.drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
+  color: var(--text);
 }
 .fm-folder .fm-thumb {
   background: transparent;

@@ -931,11 +931,18 @@ router.patch('/assets/:id', auth, (req, res) => {
     if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
   }
   const patch = body(req);
-  const { folder, name, kind } = patch;
+  const { name, kind } = patch;
   db.prepare(
-    `UPDATE assets SET folder = COALESCE(?, folder), name = COALESCE(?, name), kind = COALESCE(?, kind)
-     WHERE id = ?`,
-  ).run(folder ?? null, name ?? null, kind ?? null, req.params.id);
+    `UPDATE assets SET name = COALESCE(?, name), kind = COALESCE(?, kind) WHERE id = ?`,
+  ).run(name ?? null, kind ?? null, req.params.id);
+  // Moving is set explicitly rather than via COALESCE so that an empty string
+  // reliably means "move to the root" instead of being treated as "no change".
+  if (typeof patch.folder === 'string') {
+    db.prepare('UPDATE assets SET folder = ? WHERE id = ?').run(
+      patch.folder.trim().slice(0, 60),
+      req.params.id,
+    );
+  }
   // Only the owner flips visibility.
   if ('visibility' in patch && a.owner_id === req.user.id) {
     db.prepare('UPDATE assets SET visibility = ? WHERE id = ?').run(
