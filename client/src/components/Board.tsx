@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import Icon from './Icon';
 import { can, type Role } from '../permissions';
-import type { Drawing, FogShape, Token, Tool } from '../types';
+import type { Drawing, EraseStroke, FogShape, Token, Tool } from '../types';
 import { useViewport } from '../hooks/useViewport';
 import { clamp, nanoid } from '../util';
 import type { Vec } from '../util';
@@ -23,7 +23,7 @@ type Drag =
   | { type: 'draw'; points: number[] }
   | { type: 'fog'; start: Vec; current: Vec }
   | { type: 'ruler'; start: Vec; current: Vec }
-  | { type: 'erase'; current: Vec }
+  | { type: 'erase'; points: number[] }
   | { type: 'marquee' }
   | null;
 
@@ -55,6 +55,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
 
   const [drag, setDrag] = useState<Drag>(null);
   const [draftPoints, setDraftPoints] = useState<number[] | null>(null);
+  const [draftErase, setDraftErase] = useState<number[] | null>(null);
   const [draftFog, setDraftFog] = useState<{ a: Vec; b: Vec; mode: 'reveal' | 'hide' } | null>(null);
   const [ruler, setRuler] = useState<{ a: Vec; b: Vec } | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
@@ -69,10 +70,19 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
     () => state.drawings.filter((d) => d.sceneId === scene?.id),
     [state.drawings, scene?.id],
   );
+  const sceneErasers = useMemo(
+    () => (state.erasers || []).filter((e) => e.sceneId === scene?.id),
+    [state.erasers, scene?.id],
+  );
   const sceneFog = useMemo(
     () => state.fog.filter((f) => f.sceneId === scene?.id),
     [state.fog, scene?.id],
   );
+
+  // Radius of the eraser in world units. The `24 / scale` term keeps a minimum
+  // on-screen size when zoomed out. It is baked into the stroke when the eraser
+  // is released, so every player sees the same hole regardless of their zoom.
+  const eraserRadius = 24 / (viewport.scale || 1) + strokeWidth;
 
   const isGM = self.role === 'gm';
   const role = (self.role as Role) || 'player';
@@ -214,9 +224,10 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         break;
       case 'eraser': {
         if (!can(role, 'draw')) break;
-        // erase while dragging too
-        eraseAt(w);
-        setDrag({ type: 'erase', current: w });
+        // The eraser paints an "erase stroke" (see the mask below) rather than
+        // deleting the drawings it touches.
+        setDrag({ type: 'erase', points: [w.x, w.y, w.x, w.y] });
+        setDraftErase([w.x, w.y, w.x, w.y]);
         break;
       }
       case 'ping': {
@@ -296,8 +307,10 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         setRuler({ a: drag.start, b: w });
         break;
       case 'erase': {
-        eraseAt(w);
-        setDrag({ ...drag, current: w });
+        const pts = [...drag.points];
+        pts.push(w.x, w.y);
+        setDraftErase(pts);
+        setDrag({ ...drag, points: pts });
         break;
       }
       default:
@@ -332,6 +345,17 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         if (shape) dispatch({ kind: 'fog.add', shape });
         break;
       }
+      case 'erase': {
+        if (!draftErase || draftErase.length < 2) break;
+        const erase: EraseStroke = {
+          id: nanoid(),
+          sceneId: scene.id,
+          width: eraserRadius * 2,
+          points: draftErase,
+        };
+        dispatch({ kind: 'erase.add', erase });
+        break;
+      }
       case 'ruler':
         // keep ruler visible until next action; nothing to persist
         break;
@@ -341,6 +365,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
     setDrag(null);
     setDraftPoints(null);
     setDraftFog(null);
+    setDraftErase(null);
     void e;
   }
 
@@ -365,15 +390,6 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   }
 
   /* ---------------- helpers ---------------- */
-  function eraseAt(w: Vec) {
-    const r = 24 / viewport.scale + strokeWidth;
-    for (const d of sceneDrawings) {
-      if (drawingHit(d, w, r)) {
-        dispatch({ kind: 'drawing.remove', id: d.id });
-      }
-    }
-  }
-
   function fogShapeFromDraft(
     d: { a: Vec; b: Vec; mode: 'reveal' | 'hide' },
     sceneId: string,
@@ -470,41 +486,60 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
           </svg>
         )}
 
-        {/* Drawings */}
+        {/* Drawings — masked so the eraser only punches out the pixels it
+            actually passes over, instead of deleting whole strokes. */}
         <svg
           className="grid-svg"
           width={scene.width}
           height={scene.height}
           style={{ overflow: 'visible', pointerEvents: tool === 'select' ? 'auto' : 'none' }}
         >
-          {sceneDrawings.map((d) => (
-            <g
-              key={d.id}
-              onPointerDown={(e) => {
-                if (tool !== 'select') return;
-                e.stopPropagation();
-                setSelectedDrawingId(d.id);
-                setSelectedId(null);
-              }}
-              style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+          <defs>
+            <mask
+              id={`erase-mask-${scene.id}`}
+              maskUnits="userSpaceOnUse"
+              x={0}
+              y={0}
+              width={scene.width}
+              height={scene.height}
             >
-              {/* invisible thick hit area for easier clicking */}
-              <DrawingShape d={d} hit />
-              <DrawingShape d={d} selected={d.id === selectedDrawingId} />
-            </g>
-          ))}
-          {draftPoints && (
-            <DrawingShape
-              d={{
-                id: 'draft',
-                sceneId: scene.id,
-                kind: tool as Drawing['kind'],
-                color: color + 'cc',
-                width: strokeWidth,
-                points: draftPoints,
-              }}
-            />
-          )}
+              <rect x={0} y={0} width={scene.width} height={scene.height} fill="#fff" />
+              {sceneErasers.map((e) => (
+                <ErasePath key={e.id} width={e.width} points={e.points} />
+              ))}
+              {draftErase && <ErasePath width={eraserRadius * 2} points={draftErase} />}
+            </mask>
+          </defs>
+          <g mask={`url(#erase-mask-${scene.id})`}>
+            {sceneDrawings.map((d) => (
+              <g
+                key={d.id}
+                onPointerDown={(e) => {
+                  if (tool !== 'select') return;
+                  e.stopPropagation();
+                  setSelectedDrawingId(d.id);
+                  setSelectedId(null);
+                }}
+                style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+              >
+                {/* invisible thick hit area for easier clicking */}
+                <DrawingShape d={d} hit />
+                <DrawingShape d={d} selected={d.id === selectedDrawingId} />
+              </g>
+            ))}
+            {draftPoints && (
+              <DrawingShape
+                d={{
+                  id: 'draft',
+                  sceneId: scene.id,
+                  kind: tool as Drawing['kind'],
+                  color: color + 'cc',
+                  width: strokeWidth,
+                  points: draftPoints,
+                }}
+              />
+            )}
+          </g>
 
           {/* Ruler */}
           {ruler && drag?.type === 'ruler' && (
@@ -757,6 +792,27 @@ function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hi
     default:
       return null;
   }
+}
+
+/**
+ * One eraser stroke, rendered as a black polyline inside the mask. SVG masks
+ * are luminance-based, so black hides and white shows: this punches the stroke
+ * out of the drawings underneath it.
+ */
+function ErasePath({ width, points }: { width: number; points: number[] }) {
+  if (points.length < 2) return null;
+  let d = `M${points[0]} ${points[1]}`;
+  for (let i = 2; i < points.length; i += 2) d += `L${points[i]} ${points[i + 1]}`;
+  return (
+    <path
+      d={d}
+      stroke="#000"
+      strokeWidth={width}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  );
 }
 
 function RulerShape({ a, b, gridSize }: { a: Vec; b: Vec; gridSize: number }) {

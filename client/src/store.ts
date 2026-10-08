@@ -48,7 +48,16 @@ interface Store {
     entry: Omit<import('./types').GameLogEntry, 'id' | 'ts' | 'actor' | 'actorId'>,
   ) => void;
   setRole: (targetId: string, role: 'gm' | 'player') => void;
+  undoDraw: () => void;
 }
+
+/**
+ * Local stack of the drawing/erasing actions *this* client performed, so undo
+ * can step back through them. Remote actions arrive via `setState`, never
+ * through `dispatch`, so they never land here.
+ */
+type Undoable = { kind: 'drawing.add' | 'erase.add'; id: string };
+const undoStack: Undoable[] = [];
 
 function emptyState(roomId: string): RoomState {
   const scene: Scene = {
@@ -66,6 +75,7 @@ function emptyState(roomId: string): RoomState {
     id: roomId,
     tokens: [],
     drawings: [],
+    erasers: [],
     fog: [],
     chat: [],
     log: [],
@@ -124,7 +134,21 @@ export function reduce(state: RoomState, action: Action): RoomState {
     case 'drawing.remove':
       return { ...state, drawings: state.drawings.filter((d) => d.id !== action.id) };
     case 'drawing.clear':
-      return { ...state, drawings: state.drawings.filter((d) => d.sceneId !== action.sceneId) };
+      // Erasers must go too: a leftover eraser would keep punching holes in
+      // whatever is drawn next.
+      return {
+        ...state,
+        drawings: state.drawings.filter((d) => d.sceneId !== action.sceneId),
+        erasers: (state.erasers || []).filter((e) => e.sceneId !== action.sceneId),
+      };
+    case 'erase.add':
+      return (state.erasers || []).some((e) => e.id === action.erase.id)
+        ? state
+        : { ...state, erasers: [...(state.erasers || []), action.erase] };
+    case 'erase.remove':
+      return { ...state, erasers: (state.erasers || []).filter((e) => e.id !== action.id) };
+    case 'erase.clear':
+      return { ...state, erasers: (state.erasers || []).filter((e) => e.sceneId !== action.sceneId) };
     case 'fog.add':
       return state.fog.some((f) => f.id === action.shape.id)
         ? state
@@ -206,11 +230,25 @@ export const useStore = create<Store>((set, get) => ({
   dispatch: (action) => {
     // optimistic local update
     set((s) => ({ state: reduce(s.state, action), lastActionAt: Date.now() }));
+    if (action.kind === 'drawing.add' || action.kind === 'erase.add') {
+      undoStack.push({ kind: action.kind, id: action.kind === 'drawing.add' ? action.drawing.id : action.erase.id });
+      if (undoStack.length > 100) undoStack.shift();
+    }
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'action', action }));
     } else {
       pending.push(action);
     }
+  },
+
+  undoDraw: () => {
+    const last = undoStack.pop();
+    if (!last) return;
+    get().dispatch(
+      last.kind === 'drawing.add'
+        ? { kind: 'drawing.remove', id: last.id }
+        : { kind: 'erase.remove', id: last.id },
+    );
   },
 
   setCursor: (from, cursor) => {

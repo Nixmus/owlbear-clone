@@ -163,6 +163,10 @@ function Table() {
     () => state.drawings.filter((d) => d.sceneId === scene?.id),
     [state.drawings, scene?.id],
   );
+  const sceneErasers = useMemo(
+    () => (state.erasers || []).filter((e) => e.sceneId === scene?.id),
+    [state.erasers, scene?.id],
+  );
 
   const addToken = () => {
     if (!scene) return;
@@ -192,8 +196,8 @@ function Table() {
   };
 
   const undoDrawing = () => {
-    const last = sceneDrawings[sceneDrawings.length - 1];
-    if (last) dispatch({ kind: 'drawing.remove', id: last.id });
+    // Steps back through this client's own drawing/erasing actions, in order.
+    useStore.getState().undoDraw();
   };
 
   const clearDrawings = () => {
@@ -225,7 +229,7 @@ function Table() {
         role={role}
         color={color}
         setColor={setColor}
-        canUndo={sceneDrawings.length > 0}
+        canUndo={sceneDrawings.length > 0 || sceneErasers.length > 0}
         onUndo={undoDrawing}
         onClearDrawings={clearDrawings}
         onClearFog={clearFog}

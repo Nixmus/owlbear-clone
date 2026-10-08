@@ -40,6 +40,19 @@ export interface Drawing {
   points: number[]; // flattened [x1,y1,x2,y2,...]
 }
 
+/**
+ * A stroke of the eraser. Kept alongside the drawings instead of deleting
+ * them, so erasing is non-destructive: the drawings still exist, they are just
+ * punched out through an SVG mask. That keeps erasing in sync across players
+ * (it travels like any other action) and lets undo simply drop the eraser.
+ */
+export interface EraseStroke {
+  id: string;
+  sceneId: string;
+  width: number; // diameter of the eraser in world units
+  points: number[]; // flattened [x1,y1,x2,y2,...]
+}
+
 export interface FogShape {
   id: string;
   sceneId: string;
@@ -86,6 +99,7 @@ export interface RoomState {
   id: string;
   tokens: Token[];
   drawings: Drawing[];
+  erasers: EraseStroke[];
   fog: FogShape[];
   chat: ChatMessage[];
   log: GameLogEntry[];
@@ -106,6 +120,9 @@ export type Action =
   | { kind: 'drawing.update'; id: string; patch: Partial<Drawing> }
   | { kind: 'drawing.remove'; id: string }
   | { kind: 'drawing.clear'; sceneId: string }
+  | { kind: 'erase.add'; erase: EraseStroke }
+  | { kind: 'erase.remove'; id: string }
+  | { kind: 'erase.clear'; sceneId: string }
   | { kind: 'fog.add'; shape: FogShape }
   | { kind: 'fog.clear'; sceneId: string }
   | { kind: 'chat.add'; message: ChatMessage }

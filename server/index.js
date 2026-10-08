@@ -38,6 +38,7 @@ function emptyRoom(id) {
     id,
     tokens: [],
     drawings: [],
+    erasers: [],
     fog: [],
     chat: [],
     log: [],
@@ -58,6 +59,8 @@ function loadRoom(roomId) {
     if (row?.state) {
       const parsed = JSON.parse(row.state);
       Object.assign(room, parsed);
+      // Rooms persisted before the eraser existed have no `erasers` key.
+      if (!Array.isArray(room.erasers)) room.erasers = [];
       if (!Array.isArray(room.scenes) || room.scenes.length === 0) {
         const scene = emptyScene();
         room.scenes = [scene];
@@ -149,6 +152,7 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
       if (state.activeSceneId === action.id) state.activeSceneId = state.scenes[0].id;
       state.tokens = state.tokens.filter((t) => t.sceneId !== action.id);
       state.drawings = state.drawings.filter((d) => d.sceneId !== action.id);
+      state.erasers = (state.erasers || []).filter((e) => e.sceneId !== action.id);
       state.fog = state.fog.filter((f) => f.sceneId !== action.id);
       return true;
     case 'scene.activate':
@@ -198,6 +202,31 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
     case 'drawing.clear':
       if (!isGM) return false;
       state.drawings = state.drawings.filter((d) => d.sceneId !== action.sceneId);
+      // Same reason as the client reducer: a surviving eraser would punch holes
+      // in whatever gets drawn next.
+      state.erasers = (state.erasers || []).filter((e) => e.sceneId !== action.sceneId);
+      return true;
+    case 'erase.add': {
+      if (!action.erase?.id) return false;
+      if (!Array.isArray(action.erase.points) || action.erase.points.length < 2) return false;
+      if (!state.erasers) state.erasers = [];
+      if (state.erasers.some((x) => x.id === action.erase.id)) return false;
+      const width = Number(action.erase.width);
+      if (!Number.isFinite(width) || width <= 0) return false;
+      state.erasers.push({
+        id: action.erase.id,
+        sceneId: action.erase.sceneId,
+        width,
+        points: action.erase.points.map(Number),
+      });
+      return true;
+    }
+    case 'erase.remove':
+      state.erasers = (state.erasers || []).filter((e) => e.id !== action.id);
+      return true;
+    case 'erase.clear':
+      if (!isGM) return false;
+      state.erasers = (state.erasers || []).filter((e) => e.sceneId !== action.sceneId);
       return true;
     case 'fog.add':
       if (!isGM) return false;
