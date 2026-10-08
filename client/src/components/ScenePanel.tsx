@@ -4,7 +4,7 @@ import { nanoid } from '../util';
 import Icon from './Icon';
 import { api, assetUrl, type Asset } from '../api';
 import { can, type Role } from '../permissions';
-import type { Scene } from '../types';
+import type { Scene, Tool } from '../types';
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -17,6 +17,8 @@ function fileToDataUrl(file: File): Promise<string> {
 
 interface Props {
   role: Role;
+  /** Picking an image arms the decal tool, so the panel needs to set it. */
+  setTool: (t: Tool) => void;
   color: string;
   setColor: (c: string) => void;
   strokeWidth: number;
@@ -50,15 +52,76 @@ export default function ScenePanel(props: Props) {
   // assets to draw from, so the picker simply stays empty.
   const campaignId = roomId;
   const [images, setImages] = useState<Asset[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
+
+  async function loadImages() {
+    if (!campaignId) return;
+    try {
+      const d = await api.get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`);
+      setImages(d.assets.filter((a) => a.mime.startsWith('image/')));
+    } catch {
+      setImages([]);
+    }
+  }
 
   // Images available to paste onto the map.
   useEffect(() => {
-    if (!campaignId) return;
-    api
-      .get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`)
-      .then((d) => setImages(d.assets.filter((a) => a.mime.startsWith('image/'))))
-      .catch(() => setImages([]));
+    void loadImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
+
+  /** Reads the real pixel size so a pasted sticker keeps its proportions. */
+  function imageSize(url: string): Promise<{ w: number; h: number }> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth || 200, h: img.naturalHeight || 200 });
+      img.onerror = () => resolve({ w: 200, h: 200 });
+      img.src = url;
+    });
+  }
+
+  async function uploadImages(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) continue;
+        const form = new FormData();
+        form.append('file', file);
+        form.append('campaignId', campaignId);
+        form.append('name', file.name);
+        form.append('kind', 'image');
+        await api.upload('/upload', form);
+      }
+      await loadImages();
+      // Arm the newest upload so the very next map click places it. The asset
+      // row is read straight from the server response rather than from React
+      // state, which has not re-rendered yet.
+      if (files[0] && files[0].type.startsWith('image/') && campaignId) {
+        const name = files[0].name;
+        try {
+          const d = await api.get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`);
+          const created = d.assets.find((a) => a.name === name && a.mime.startsWith('image/'));
+          if (created) pickDecal(created);
+        } catch {
+          /* image is uploaded, they can pick it manually */
+        }
+      }
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  /** Picking an image also arms the decal tool, so there is one step, not two. */
+  function pickDecal(a: Asset) {
+    void imageSize(a.url).then((size) => {
+      props.setDecalImage({ url: a.url, w: size.w, h: size.h });
+      props.setTool('decal');
+    });
+  }
 
   if (!scene) return null;
   const canManage = can(props.role, 'scene.manage');
@@ -297,14 +360,30 @@ export default function ScenePanel(props: Props) {
                 <>
                   <div className="tool-divider" />
                   <div className="section-label">Imágenes sobre el mapa</div>
-                  <p className="muted" style={{ margin: 0, fontSize: 11.5 }}>
-                    Elige una imagen y haz clic en el mapa para pegarla como un sticker.
-                  </p>
-                  {images.length === 0 ? (
-                    <p className="muted" style={{ margin: 0, fontSize: 11.5 }}>
-                      Sube imágenes a los recursos de la campaña para usarlas aquí.
-                    </p>
-                  ) : (
+
+                  {/* One flow: upload or pick here, then click the map. */}
+                  <button
+                    className="btn"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    onClick={() => uploadRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    <Icon name="upload" size={14} />
+                    {uploading ? 'Subiendo…' : 'Subir una imagen'}
+                  </button>
+                  <input
+                    ref={uploadRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      void uploadImages(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+
+                  {images.length > 0 && (
                     <div className="decal-picker">
                       {images.map((a) => (
                         <button
@@ -313,15 +392,31 @@ export default function ScenePanel(props: Props) {
                             props.decalImage?.url === a.url ? 'active' : ''
                           }`}
                           title={a.name}
-                          onClick={() =>
-                            props.setDecalImage({ url: a.url, w: 200, h: 200 })
-                          }
+                          onClick={() => pickDecal(a)}
                         >
                           <img src={assetUrl(a.url) || a.url} alt={a.name} loading="lazy" />
                         </button>
                       ))}
                     </div>
                   )}
+
+                  {/* Explicit state: what is armed and what to do next. */}
+                  <div className={`decal-armed ${props.decalImage ? 'ready' : ''}`}>
+                    {props.decalImage ? (
+                      <>
+                        <img src={assetUrl(props.decalImage.url) || props.decalImage.url} alt="" />
+                        <div>
+                          <b>Lista para pegar</b>
+                          <span>Haz clic en el mapa para pegarla. Pega varias con seguidos clics.</span>
+                        </div>
+                      </>
+                    ) : (
+                      <span>
+                        Elige una imagen de arriba para activarla y poder hacer clic en el mapa.
+                      </span>
+                    )}
+                  </div>
+
                   <div className="field">
                     <label>Tamaño al pegar: {props.decalSize}px</label>
                     <input
@@ -343,6 +438,10 @@ export default function ScenePanel(props: Props) {
                       onChange={(e) => props.setDecalOpacity(+e.target.value / 100)}
                     />
                   </div>
+                  <span className="hint">
+                    Para mover o redimensionar una imagen ya pegada, usa la herramienta
+                    Seleccionar, arrástrala y tira del tirador de la esquina. Supr la borra.
+                  </span>
                 </>
               )}
 

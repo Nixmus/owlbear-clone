@@ -349,6 +349,7 @@ function Table() {
           <div className="side-panel" hidden={sideTab !== 'scene'}>
             <ScenePanel
               role={role}
+              setTool={setTool}
               color={color}
               setColor={setColor}
               strokeWidth={strokeWidth}
