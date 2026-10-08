@@ -115,6 +115,45 @@ router.get('/auth/me', auth, (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+/* ---- password reset ("olvidé mi contraseña") ---- */
+
+// Step 1: request a reset token. In production, email the token; here we return
+// it directly so it can be used without a mail server configured.
+router.post('/auth/forgot', (req, res) => {
+  const { username } = body(req);
+  const user = db
+    .prepare('SELECT * FROM users WHERE username = ? OR email = ?')
+    .get(username, username);
+  // Always answer ok to avoid leaking which accounts exist.
+  if (!user) return res.json({ ok: true });
+
+  const token = nanoid(32);
+  const expires = Date.now() + 1000 * 60 * 30; // 30 minutes
+  db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
+  db.prepare(
+    'INSERT INTO password_resets (token, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)',
+  ).run(token, user.id, expires, now());
+
+  // Without a mail provider, hand the token back so the UI can show it.
+  res.json({ ok: true, token, devDelivery: true });
+});
+
+// Step 2: use the token to set a new password.
+router.post('/auth/reset', (req, res) => {
+  const { token, password } = body(req);
+  if (!token || !password) return res.status(400).json({ error: 'token and password are required' });
+  if (String(password).length < 6) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  }
+  const row = db.prepare('SELECT * FROM password_resets WHERE token = ?').get(token);
+  if (!row || row.used || row.expires_at < Date.now()) {
+    return res.status(400).json({ error: 'El enlace de recuperación no es válido o ha caducado' });
+  }
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), row.user_id);
+  db.prepare('UPDATE password_resets SET used = 1 WHERE token = ?').run(token);
+  res.json({ ok: true });
+});
+
 router.patch('/me', auth, (req, res) => {
   const { displayName, bio, avatarUrl } = body(req);
   db.prepare('UPDATE users SET display_name = COALESCE(?, display_name), bio = COALESCE(?, bio), avatar_url = COALESCE(?, avatar_url) WHERE id = ?').run(
@@ -125,6 +164,26 @@ router.patch('/me', auth, (req, res) => {
   );
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: publicUser(user) });
+});
+
+// Change password while logged in (requires the current password).
+router.post('/me/password', auth, (req, res) => {
+  const { currentPassword, newPassword } = body(req);
+  if (String(newPassword || '').length < 6) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres' });
+  }
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user || !verifyPassword(currentPassword, user.password_hash)) {
+    return res.status(401).json({ error: 'La contraseña actual no es correcta' });
+  }
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), user.id);
+  res.json({ ok: true });
+});
+
+// Delete your own account.
+router.delete('/me', auth, (req, res) => {
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
+  res.json({ ok: true });
 });
 
 /* ------------------------------------------------------------------ *

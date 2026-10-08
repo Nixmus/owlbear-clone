@@ -6,40 +6,47 @@ interface Props {
   tool: Tool;
   setTool: (t: Tool) => void;
   role: Role;
+  color: string;
+  setColor: (c: string) => void;
   canUndo: boolean;
   onUndo: () => void;
   onClearDrawings: () => void;
   onClearFog: () => void;
   onAddToken: () => void;
+  onManageUsers: () => void;
 }
 
 const TOOLS: { id: Tool; icon: IconName; tip: string }[] = [
-  { id: 'select', icon: 'select', tip: 'Select / Move' },
-  { id: 'pan', icon: 'pan', tip: 'Pan' },
-  { id: 'ruler', icon: 'ruler', tip: 'Measure' },
+  { id: 'select', icon: 'select', tip: 'Seleccionar / Mover' },
+  { id: 'pan', icon: 'pan', tip: 'Desplazar' },
+  { id: 'ruler', icon: 'ruler', tip: 'Medir' },
 ];
 
 const DRAW: { id: Tool; icon: IconName; tip: string }[] = [
-  { id: 'pen', icon: 'pen', tip: 'Freehand' },
-  { id: 'line', icon: 'line', tip: 'Line' },
-  { id: 'rect', icon: 'rect', tip: 'Rectangle' },
-  { id: 'circle', icon: 'circle', tip: 'Circle' },
+  { id: 'pen', icon: 'pen', tip: 'Mano alzada' },
+  { id: 'line', icon: 'line', tip: 'Línea' },
+  { id: 'rect', icon: 'rect', tip: 'Rectángulo' },
+  { id: 'circle', icon: 'circle', tip: 'Círculo' },
+  { id: 'eraser', icon: 'eraser', tip: 'Borrador' },
 ];
 
 const FOG: { id: Tool; icon: IconName; tip: string }[] = [
-  { id: 'fog-reveal', icon: 'reveal', tip: 'Reveal fog' },
-  { id: 'fog-hide', icon: 'fog', tip: 'Hide (re-cover)' },
+  { id: 'fog-reveal', icon: 'reveal', tip: 'Revelar niebla' },
+  { id: 'fog-hide', icon: 'fog', tip: 'Cubrir con niebla' },
 ];
 
 export default function ToolRail({
   tool,
   setTool,
   role,
+  color,
+  setColor,
   canUndo,
   onUndo,
   onClearDrawings,
   onClearFog,
   onAddToken,
+  onManageUsers,
 }: Props) {
   const Btn = ({ id, icon, tip }: { id: Tool; icon: IconName; tip: string }) => (
     <button
@@ -47,6 +54,7 @@ export default function ToolRail({
       data-tip={tip}
       onClick={() => setTool(id)}
       title={tip}
+      aria-label={tip}
     >
       <Icon name={icon} />
     </button>
@@ -55,6 +63,7 @@ export default function ToolRail({
   const canDraw = can(role, 'draw');
   const canFog = can(role, 'fog.edit');
   const canToken = can(role, 'token.add');
+  const isGM = can(role, 'user.manage');
 
   return (
     <nav className="tools">
@@ -97,8 +106,8 @@ export default function ToolRail({
       {canDraw && (
         <button
           className="tool"
-          data-tip="Borrar dibujos"
-          title="Borrar dibujos"
+          data-tip="Borrar todos los dibujos"
+          title="Borrar todos los dibujos"
           onClick={onClearDrawings}
         >
           <Icon name="clear" />
@@ -108,6 +117,24 @@ export default function ToolRail({
         <button className="tool" data-tip="Reiniciar niebla" title="Reiniciar niebla" onClick={onClearFog}>
           <Icon name="reset" />
         </button>
+      )}
+
+      {isGM && (
+        <>
+          <div className="tool-divider" />
+          <button
+            className="tool"
+            data-tip="Gestionar jugadores"
+            title="Gestionar jugadores"
+            onClick={onManageUsers}
+          >
+            <Icon name="members" />
+          </button>
+          <label className="tool color-tool" data-tip="Color del trazo" title="Color del trazo">
+            <span style={{ background: color }} />
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+          </label>
+        </>
       )}
     </nav>
   );

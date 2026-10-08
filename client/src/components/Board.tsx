@@ -22,6 +22,7 @@ type Drag =
   | { type: 'draw'; points: number[] }
   | { type: 'fog'; start: Vec; current: Vec }
   | { type: 'ruler'; start: Vec; current: Vec }
+  | { type: 'erase'; current: Vec }
   | { type: 'marquee' }
   | null;
 
@@ -163,6 +164,13 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         setDrag({ type: 'draw', points: [w.x, w.y, w.x, w.y] });
         setDraftPoints([w.x, w.y, w.x, w.y]);
         break;
+      case 'eraser': {
+        if (!can(role, 'draw')) break;
+        // erase while dragging too
+        eraseAt(w);
+        setDrag({ type: 'erase', current: w });
+        break;
+      }
       default:
         break;
     }
@@ -226,6 +234,11 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         setDrag({ ...drag, current: w });
         setRuler({ a: drag.start, b: w });
         break;
+      case 'erase': {
+        eraseAt(w);
+        setDrag({ ...drag, current: w });
+        break;
+      }
       default:
         break;
     }
@@ -286,6 +299,15 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
   }
 
   /* ---------------- helpers ---------------- */
+  function eraseAt(w: Vec) {
+    const r = 24 / viewport.scale + strokeWidth;
+    for (const d of sceneDrawings) {
+      if (drawingHit(d, w, r)) {
+        dispatch({ kind: 'drawing.remove', id: d.id });
+      }
+    }
+  }
+
   function fogShapeFromDraft(
     d: { a: Vec; b: Vec; mode: 'reveal' | 'hide' },
     sceneId: string,
@@ -346,7 +368,10 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerUp}
-      style={{ cursor: panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+      style={{
+        cursor: panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair',
+        touchAction: 'none',
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div
@@ -505,6 +530,50 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
 }
 
 /* ------------------------------------------------------------------ */
+
+/** True if the point `p` is within `r` of the drawing's geometry. */
+export function drawingHit(d: Drawing, p: Vec, r: number): boolean {
+  if (d.points.length < 4) return false;
+  const [x1, y1, x2, y2] = d.points;
+  switch (d.kind) {
+    case 'rect': {
+      const rx = Math.min(x1, x2);
+      const ry = Math.min(y1, y2);
+      const rw = Math.abs(x2 - x1);
+      const rh = Math.abs(y2 - y1);
+      const nx = Math.max(rx, Math.min(p.x, rx + rw));
+      const ny = Math.max(ry, Math.min(p.y, ry + rh));
+      return Math.hypot(p.x - nx, p.y - ny) <= r;
+    }
+    case 'circle': {
+      const rad = Math.hypot(x2 - x1, y2 - y1);
+      const dist = Math.hypot(p.x - x1, p.y - y1);
+      return Math.abs(dist - rad) <= r || dist <= rad;
+    }
+    case 'line':
+      return pointSegDist(p, { x: x1, y: y1 }, { x: x2, y: y2 }) <= r;
+    case 'pen': {
+      for (let i = 0; i + 3 < d.points.length; i += 2) {
+        const a = { x: d.points[i], y: d.points[i + 1] };
+        const b = { x: d.points[i + 2], y: d.points[i + 3] };
+        if (pointSegDist(p, a, b) <= r) return true;
+      }
+      return false;
+    }
+    default:
+      return false;
+  }
+}
+
+function pointSegDist(p: Vec, a: Vec, b: Vec): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
 
 function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hit?: boolean }) {
   if (d.points.length < 4) return null;

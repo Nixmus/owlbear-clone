@@ -23,15 +23,45 @@ function AuthScreen() {
   const register = useAuth((s) => s.register);
   const loading = useAuth((s) => s.loading);
   const error = useAuth((s) => s.error);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const forgotPassword = useAuth((s) => s.forgotPassword);
+  const resetPassword = useAuth((s) => s.resetPassword);
+
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset'>('login');
   const [form, setForm] = useState({ username: '', email: '', password: '', displayName: '' });
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [info, setInfo] = useState('');
 
   const submit = async () => {
     try {
       if (mode === 'login') await login(form.username, form.password);
-      else await register(form.username, form.email, form.password, form.displayName);
+      else if (mode === 'register')
+        await register(form.username, form.email, form.password, form.displayName);
     } catch {
       /* shown via store */
+    }
+  };
+
+  const requestReset = async () => {
+    setInfo('');
+    const token = await forgotPassword(form.username);
+    if (token) {
+      setResetToken(token);
+      setMode('reset');
+      setInfo('Se generó un código de recuperación (válido 30 min).');
+    } else {
+      setInfo('Si la cuenta existe, recibirás instrucciones para restablecer la contraseña.');
+    }
+  };
+
+  const doReset = async () => {
+    try {
+      await resetPassword(resetToken, newPassword);
+      setMode('login');
+      setInfo('Contraseña actualizada. Ya puedes iniciar sesión.');
+      setNewPassword('');
+    } catch (e) {
+      setInfo((e as Error).message);
     }
   };
 
@@ -43,24 +73,28 @@ function AuthScreen() {
         </h1>
         <p>Crea campañas, gestiona personajes y juega tus partidas en un solo lugar.</p>
 
-        <div className="role-toggle">
-          <button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>
-            Iniciar sesión
-          </button>
-          <button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>
-            Crear cuenta
-          </button>
-        </div>
+        {(mode === 'login' || mode === 'register') && (
+          <div className="role-toggle">
+            <button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>
+              Iniciar sesión
+            </button>
+            <button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>
+              Crear cuenta
+            </button>
+          </div>
+        )}
 
-        <div className="field">
-          <label>Usuario</label>
-          <input
-            value={form.username}
-            placeholder="tu_usuario"
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-          />
-        </div>
+        {(mode === 'login' || mode === 'register' || mode === 'forgot') && (
+          <div className="field">
+            <label>{mode === 'forgot' ? 'Usuario o email' : 'Usuario o email'}</label>
+            <input
+              value={form.username}
+              placeholder="tu_usuario"
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+              onKeyDown={(e) => e.key === 'Enter' && (mode === 'forgot' ? requestReset() : submit())}
+            />
+          </div>
+        )}
 
         {mode === 'register' && (
           <>
@@ -84,30 +118,81 @@ function AuthScreen() {
           </>
         )}
 
-        <div className="field">
-          <label>Contraseña</label>
-          <input
-            type="password"
-            placeholder="Mínimo 6 caracteres"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-          />
-        </div>
+        {(mode === 'login' || mode === 'register') && (
+          <div className="field">
+            <label>Contraseña</label>
+            <input
+              type="password"
+              placeholder="Mínimo 6 caracteres"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
+            />
+          </div>
+        )}
+
+        {mode === 'login' && (
+          <button className="link-btn" onClick={() => { setInfo(''); setMode('forgot'); }}>
+            ¿Olvidaste tu contraseña?
+          </button>
+        )}
+
+        {mode === 'forgot' && info && <p className="muted">{info}</p>}
+
+        {mode === 'reset' && (
+          <>
+            <p className="muted">{info}</p>
+            <div className="field">
+              <label>Código de recuperación</label>
+              <input value={resetToken} onChange={(e) => setResetToken(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Nueva contraseña</label>
+              <input
+                type="password"
+                placeholder="Mínimo 6 caracteres"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && doReset()}
+              />
+            </div>
+          </>
+        )}
 
         {error && <p className="error">{error}</p>}
 
-        <button className="btn primary big" onClick={submit} disabled={loading}>
-          {loading ? 'Un momento…' : mode === 'login' ? 'Entrar' : 'Crear cuenta'}
-        </button>
+        {(mode === 'login' || mode === 'register') && (
+          <button className="btn primary big" onClick={submit} disabled={loading}>
+            {loading ? 'Un momento…' : mode === 'login' ? 'Entrar' : 'Crear cuenta'}
+          </button>
+        )}
+        {mode === 'forgot' && (
+          <button className="btn primary big" onClick={requestReset}>
+            Recuperar contraseña
+          </button>
+        )}
+        {mode === 'reset' && (
+          <button className="btn primary big" onClick={doReset}>
+            Guardar nueva contraseña
+          </button>
+        )}
 
-        <div className="divider-or">
-          <span>o</span>
-        </div>
+        {mode !== 'login' && (
+          <button className="link-btn" onClick={() => { setInfo(''); setMode('login'); }}>
+            Volver a iniciar sesión
+          </button>
+        )}
 
-        <button className="btn" onClick={() => (location.href = '/?room=pickup')}>
-          <Icon name="dice" size={14} /> Jugar sin cuenta
-        </button>
+        {(mode === 'login' || mode === 'register') && (
+          <>
+            <div className="divider-or">
+              <span>o</span>
+            </div>
+            <button className="btn" onClick={() => (location.href = '/?room=pickup')}>
+              <Icon name="dice" size={14} /> Jugar sin cuenta
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -304,8 +389,29 @@ function Overview({ onOpen, onSeeCampaigns }: { onOpen: (id: string) => void; on
 function ProfilePanel() {
   const user = useAuth((s) => s.user)!;
   const updateProfile = useAuth((s) => s.updateProfile);
+  const changePassword = useAuth((s) => s.changePassword);
+  const deleteAccount = useAuth((s) => s.deleteAccount);
   const [profile, setProfile] = useState({ displayName: user.displayName, bio: user.bio || '' });
   const [saved, setSaved] = useState(false);
+  const [pw, setPw] = useState({ current: '', next: '' });
+  const [pwMsg, setPwMsg] = useState('');
+
+  const doChangePw = async () => {
+    setPwMsg('');
+    try {
+      await changePassword(pw.current, pw.next);
+      setPw({ current: '', next: '' });
+      setPwMsg('Contraseña actualizada.');
+    } catch (e) {
+      setPwMsg((e as Error).message);
+    }
+  };
+
+  const doDelete = async () => {
+    if (!confirm('¿Eliminar tu cuenta y todos tus datos? Esta acción no se puede deshacer.')) return;
+    await deleteAccount();
+    location.href = '/';
+  };
 
   return (
     <div className="hub-view">
@@ -355,6 +461,40 @@ function ProfilePanel() {
           ) : (
             'Guardar cambios'
           )}
+        </button>
+      </div>
+
+      <div className="hub-card" style={{ maxWidth: 520, marginTop: 16 }}>
+        <h3>Contraseña</h3>
+        <div className="row">
+          <div className="field">
+            <label>Contraseña actual</label>
+            <input
+              type="password"
+              value={pw.current}
+              onChange={(e) => setPw({ ...pw, current: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>Nueva contraseña</label>
+            <input
+              type="password"
+              value={pw.next}
+              onChange={(e) => setPw({ ...pw, next: e.target.value })}
+            />
+          </div>
+        </div>
+        {pwMsg && <p className="muted">{pwMsg}</p>}
+        <button className="btn" onClick={doChangePw}>
+          Cambiar contraseña
+        </button>
+      </div>
+
+      <div className="hub-card danger-zone" style={{ maxWidth: 520, marginTop: 16 }}>
+        <h3>Zona de peligro</h3>
+        <p className="muted">Eliminar tu cuenta borra tus campañas, personajes y recursos.</p>
+        <button className="btn danger" onClick={doDelete}>
+          <Icon name="trash" size={14} /> Eliminar mi cuenta
         </button>
       </div>
     </div>

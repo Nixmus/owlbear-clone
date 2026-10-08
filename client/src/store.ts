@@ -8,6 +8,7 @@ import type {
   Token,
 } from './types';
 import { nanoid } from './util';
+import { getToken } from './api';
 
 export interface Presence {
   id: string;
@@ -36,6 +37,7 @@ interface Store {
   setState: (state: RoomState) => void;
   setStatus: (status: Status) => void;
   setCursor: (from: string, cursor: { x: number; y: number; sceneId: string }) => void;
+  setRole: (targetId: string, role: 'gm' | 'player') => void;
 }
 
 function emptyState(roomId: string): RoomState {
@@ -119,6 +121,7 @@ export function reduce(state: RoomState, action: Action): RoomState {
     case 'fog.clear':
       return { ...state, fog: state.fog.filter((f) => f.sceneId !== action.sceneId) };
     case 'chat.add': {
+      if (state.chat.some((m) => m.id === action.message.id)) return state;
       const chat = [...state.chat, action.message];
       if (chat.length > 300) chat.splice(0, chat.length - 300);
       return { ...state, chat };
@@ -151,6 +154,10 @@ export const useStore = create<Store>((set, get) => ({
     const self = { ...get().self, ...patch };
     set({ self });
     get().send({ type: 'profile', ...patch });
+  },
+
+  setRole: (targetId, role) => {
+    get().send({ type: 'role.set', targetId, role });
   },
 
   send: (msg) => {
@@ -210,7 +217,7 @@ export const useStore = create<Store>((set, get) => ({
           roomId,
           name: self.name,
           color: self.color,
-          role: self.role,
+          token: getToken(),
         }),
       );
     };
@@ -225,12 +232,13 @@ export const useStore = create<Store>((set, get) => ({
       const store = get();
       switch (msg.type) {
         case 'init': {
+          const me = (msg.players || []).find((p: Player) => p.id === msg.clientId);
           set({
             status: 'connected',
             clientId: msg.clientId,
             state: msg.state,
             players: msg.players || [],
-            self: { ...store.self, id: msg.clientId },
+            self: { ...store.self, id: msg.clientId, role: me?.role || store.self.role },
           });
           // flush queued actions
           while (pending.length) {
@@ -242,9 +250,15 @@ export const useStore = create<Store>((set, get) => ({
         case 'action':
           set((s) => ({ state: reduce(s.state, msg.action), lastActionAt: Date.now() }));
           break;
-        case 'players':
-          set({ players: msg.players || [] });
+        case 'players': {
+          const list: Player[] = msg.players || [];
+          const me = list.find((p) => p.id === get().clientId);
+          set((s) => ({
+            players: list,
+            self: me ? { ...s.self, role: me.role } : s.self,
+          }));
           break;
+        }
         case 'cursor':
           get().setCursor(msg.from, { x: msg.x, y: msg.y, sceneId: msg.sceneId });
           break;

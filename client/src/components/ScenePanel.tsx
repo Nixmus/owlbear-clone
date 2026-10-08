@@ -76,114 +76,116 @@ export default function ScenePanel(props: Props) {
       </div>
       {!collapsed && (
         <div className="panel-body">
-          {state.scenes.map((s) => (
-            <div
-              key={s.id}
-              className={`scene-item ${s.id === scene.id ? 'active' : ''}`}
-              onClick={() => dispatch({ kind: 'scene.activate', id: s.id })}
-              title="Cambiar a esta escena"
-            >
-              {s.mapUrl ? (
-                <img className="scene-thumb" src={s.mapUrl} alt="" />
-              ) : (
-                <div className="scene-thumb" style={{ background: s.backgroundColor }} />
-              )}
-              <input
-                value={s.name}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => dispatch({ kind: 'scene.update', id: s.id, patch: { name: e.target.value } })}
-              />
-              {state.scenes.length > 1 && (
-                <button
-                  className="icon-btn danger"
-                  title="Eliminar escena"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (confirm(`¿Eliminar la escena "${s.name}"?`)) {
-                      dispatch({ kind: 'scene.remove', id: s.id });
-                    }
-                  }}
-                >
-                  <Icon name="close" size={14} />
-                </button>
-              )}
-            </div>
-          ))}
-          <button className="btn" onClick={addScene}>
-            <Icon name="plus" size={14} /> Nueva escena
-          </button>
-
-          <div className="tool-divider" />
-
-          <div className="field">
-            <label>Mapa de fondo</label>
-            <div className="row">
-              <button className="btn" onClick={() => mapInput.current?.click()}>
-                <Icon name="image" size={14} /> Subir mapa
-              </button>
-              {scene.mapUrl && (
-                <button className="btn danger" onClick={() => patch({ mapUrl: null })}>
-                  Quitar
-                </button>
-              )}
-            </div>
-            <input
-              ref={mapInput}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={(e) => onMap(e.target.files?.[0])}
-            />
-            <span className="hint">Sube una imagen y se ajustará al tamaño automáticamente.</span>
-          </div>
-
-          <div className="row">
-            <div className="field">
-              <label>Tipo de rejilla</label>
-              <select
-                value={scene.gridType}
-                onChange={(e) => patch({ gridType: e.target.value as Scene['gridType'] })}
-              >
-                <option value="square">Cuadrada</option>
-                <option value="hex">Hexagonal</option>
-                <option value="none">Sin rejilla</option>
-              </select>
-            </div>
-            <div className="field">
-              <label>Tamaño (px)</label>
-              <input
-                type="number"
-                value={scene.gridSize}
-                min={10}
-                max={300}
-                onChange={(e) => patch({ gridSize: clampNum(+e.target.value, 10, 300) })}
-              />
-            </div>
-          </div>
-
-          <div className="row">
-            <div className="field">
-              <label>Color de fondo</label>
-              <input
-                type="color"
-                value={scene.backgroundColor}
-                onChange={(e) => patch({ backgroundColor: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>Color de rejilla</label>
-              <input
-                type="color"
-                value={rgbToHex(scene.gridColor)}
-                onChange={(e) => patch({ gridColor: e.target.value + '55' })}
-              />
-            </div>
-          </div>
-
-          {canManage && (
+          {canManage ? (
             <>
+              {state.scenes.map((s) => (
+                <div
+                  key={s.id}
+                  className={`scene-item ${s.id === scene.id ? 'active' : ''}`}
+                  onClick={() => dispatch({ kind: 'scene.activate', id: s.id })}
+                  title="Cambiar a esta escena"
+                >
+                  {s.mapUrl ? (
+                    <img className="scene-thumb" src={s.mapUrl} alt="" />
+                  ) : (
+                    <div className="scene-thumb" style={{ background: s.backgroundColor }} />
+                  )}
+                  <input
+                    value={s.name}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      dispatch({ kind: 'scene.update', id: s.id, patch: { name: e.target.value } })
+                    }
+                  />
+                  {state.scenes.length > 1 && (
+                    <button
+                      className="icon-btn danger"
+                      title="Eliminar escena"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`¿Eliminar la escena "${s.name}"?`)) {
+                          dispatch({ kind: 'scene.remove', id: s.id });
+                        }
+                      }}
+                    >
+                      <Icon name="close" size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button className="btn" onClick={addScene}>
+                <Icon name="plus" size={14} /> Nueva escena
+              </button>
+
               <div className="tool-divider" />
-              <div className="section-label">Herramientas de dibujo y niebla</div>
+
+              <div className="field">
+                <label>Mapa de fondo</label>
+                <div className="row">
+                  <button className="btn" onClick={() => mapInput.current?.click()}>
+                    <Icon name="image" size={14} /> Subir mapa
+                  </button>
+                  {scene.mapUrl && (
+                    <button className="btn danger" onClick={() => patch({ mapUrl: null })}>
+                      Quitar
+                    </button>
+                  )}
+                </div>
+                <input
+                  ref={mapInput}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => onMap(e.target.files?.[0])}
+                />
+                <span className="hint">Sube una imagen y se ajustará al tamaño automáticamente.</span>
+              </div>
+
+              <div className="row">
+                <div className="field">
+                  <label>Tipo de rejilla</label>
+                  <select
+                    value={scene.gridType}
+                    onChange={(e) => patch({ gridType: e.target.value as Scene['gridType'] })}
+                  >
+                    <option value="square">Cuadrada</option>
+                    <option value="hex">Hexagonal</option>
+                    <option value="none">Sin rejilla</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Tamaño (px)</label>
+                  <input
+                    type="number"
+                    value={scene.gridSize}
+                    min={10}
+                    max={300}
+                    onChange={(e) => patch({ gridSize: clampNum(+e.target.value, 10, 300) })}
+                  />
+                </div>
+              </div>
+
+              <div className="row">
+                <div className="field">
+                  <label>Color de fondo</label>
+                  <input
+                    type="color"
+                    value={scene.backgroundColor}
+                    onChange={(e) => patch({ backgroundColor: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>Color de rejilla</label>
+                  <input
+                    type="color"
+                    value={rgbToHex(scene.gridColor)}
+                    onChange={(e) => patch({ gridColor: e.target.value + '55' })}
+                  />
+                </div>
+              </div>
+
+              <div className="tool-divider" />
+              <div className="section-label">Dibujo y niebla</div>
               <div className="field">
                 <label>Color de dibujo</label>
                 <input type="color" value={props.color} onChange={(e) => props.setColor(e.target.value)} />
@@ -217,6 +219,11 @@ export default function ScenePanel(props: Props) {
                 Niebla totalmente opaca
               </label>
             </>
+          ) : (
+            <p className="hint">
+              El director de juego controla los mapas, las escenas y la rejilla. Tú puedes mover tus
+              tokens, dibujar y usar el chat.
+            </p>
           )}
         </div>
       )}

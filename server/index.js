@@ -7,6 +7,7 @@ import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import { nanoid } from 'nanoid';
 import { db } from './db.js';
+import { verifyToken } from './auth.js';
 import { router, UPLOAD_DIR } from './api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -264,23 +265,71 @@ wss.on('connection', (ws) => {
       connections.get(roomId).add(ws);
       if (!players.has(roomId)) players.set(roomId, new Map());
 
+      const roster = players.get(roomId);
+
+      // Identify the user (if the room is a campaign and they are logged in).
+      const claims = msg.token ? verifyToken(msg.token) : null;
+      const userId = claims?.id || null;
+      ws.userId = userId;
+
+      // Determine role:
+      //  - campaign owner            -> gm
+      //  - campaign member with 'gm' -> gm
+      //  - anyone else (guest)       -> player
+      let role = 'player';
+      const inCampaign = db.prepare('SELECT owner_id FROM campaigns WHERE id = ?').get(roomId);
+      if (inCampaign) {
+        // It's a campaign: only the owner (or a member promoted to gm) is GM.
+        if (userId && inCampaign.owner_id === userId) role = 'gm';
+        else if (userId) {
+          const member = db
+            .prepare('SELECT role FROM campaign_members WHERE campaign_id = ? AND user_id = ?')
+            .get(roomId, userId);
+          if (member?.role === 'gm' || member?.role === 'owner') role = 'gm';
+        }
+      } else {
+        // Casual room (no campaign): the first to join is the GM.
+        const hasGM = [...roster.values()].some((p) => p.role === 'gm');
+        if (!hasGM) role = 'gm';
+      }
+
       const player = {
         id: ws.clientId,
+        userId,
         name: String(msg.name || 'Player').slice(0, 32),
         color: msg.color || '#7dd3fc',
-        role: msg.role === 'gm' ? 'gm' : 'player',
+        role,
         joinedAt: Date.now(),
       };
-      players.get(roomId).set(ws.clientId, player);
+      roster.set(ws.clientId, player);
 
       const { state } = getRoom(roomId);
-      send(ws, { type: 'init', clientId: ws.clientId, state, players: [...players.get(roomId).values()] });
-      broadcast(roomId, { type: 'players', players: [...players.get(roomId).values()] }, ws);
+      send(ws, { type: 'init', clientId: ws.clientId, state, players: [...roster.values()] });
+      broadcast(roomId, { type: 'players', players: [...roster.values()] });
       return;
     }
 
     if (!ws.roomId) return;
     const entry = getRoom(ws.roomId);
+
+    // GM-only: change another player's role.
+    if (msg.type === 'role.set') {
+      const roster = players.get(ws.roomId);
+      const me = roster?.get(ws.clientId);
+      if (roster && me?.role === 'gm' && msg.targetId) {
+        const target = roster.get(msg.targetId);
+        if (target) {
+          // The campaign owner always keeps the GM role.
+          const camp = db.prepare('SELECT owner_id FROM campaigns WHERE id = ?').get(ws.roomId);
+          const targetIsOwner = camp && target.userId && camp.owner_id === target.userId;
+          if (!targetIsOwner) {
+            target.role = msg.role === 'gm' ? 'gm' : 'player';
+            broadcast(ws.roomId, { type: 'players', players: [...roster.values()] });
+          }
+        }
+      }
+      return;
+    }
 
     if (msg.type === 'action') {
       const player = players.get(ws.roomId)?.get(ws.clientId);
@@ -306,7 +355,7 @@ wss.on('connection', (ws) => {
       if (p) {
         if (msg.name) p.name = String(msg.name).slice(0, 32);
         if (msg.color) p.color = msg.color;
-        if (msg.role) p.role = msg.role === 'gm' ? 'gm' : 'player';
+        // role is assigned by the server, never by the client
         broadcast(ws.roomId, { type: 'players', players: [...players.get(ws.roomId).values()] });
       }
       return;

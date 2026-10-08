@@ -45,12 +45,33 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
   }
 
   const isGM = can(role, 'token.deleteAny');
+  const canEdit = isGM || !token.owner || token.owner === self.id;
   const patch = (p: Partial<Token>) => dispatch({ kind: 'token.update', id: token.id, patch: p });
 
   const toggleCondition = (c: string) => {
     const has = token.conditions.includes(c);
     patch({ conditions: has ? token.conditions.filter((x) => x !== c) : [...token.conditions, c] });
   };
+
+  if (!canEdit) {
+    return (
+      <div className="panel">
+        <div className="panel-head">
+          <Icon name="user" size={14} />
+          <span>Token de otro jugador</span>
+          <span className="grow" />
+          <button onClick={() => setCollapsed((v) => !v)}>{collapsed ? '▾' : '▴'}</button>
+        </div>
+        {!collapsed && (
+          <div className="panel-body">
+            <p className="hint">
+              Este token pertenece a otro jugador. Solo su dueño o el director de juego pueden editarlo.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="panel">
@@ -131,24 +152,26 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
             />
           </div>
 
-          <div className="row">
-            <label className="row checklist" title="Los jugadores no verán este token">
-              <input
-                type="checkbox"
-                checked={token.hidden}
-                onChange={(e) => patch({ hidden: e.target.checked })}
-              />
-              Oculto a jugadores
-            </label>
-            <label className="row checklist" title="Evita moverlo por accidente">
-              <input
-                type="checkbox"
-                checked={token.locked}
-                onChange={(e) => patch({ locked: e.target.checked })}
-              />
-              Bloqueado
-            </label>
-          </div>
+          {isGM && (
+            <div className="row">
+              <label className="row checklist" title="Los jugadores no verán este token">
+                <input
+                  type="checkbox"
+                  checked={token.hidden}
+                  onChange={(e) => patch({ hidden: e.target.checked })}
+                />
+                Oculto a jugadores
+              </label>
+              <label className="row checklist" title="Evita moverlo por accidente">
+                <input
+                  type="checkbox"
+                  checked={token.locked}
+                  onChange={(e) => patch({ locked: e.target.checked })}
+                />
+                Bloqueado
+              </label>
+            </div>
+          )}
 
           <div className="field">
             <label>Estado / condiciones</label>
@@ -171,14 +194,17 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
           </div>
 
           <div className="field">
-            <label>Tipo de token</label>
+            <label>Dueño del token</label>
             <select
-              value={token.owner ? 'owned' : 'npc'}
-              onChange={(e) => patch({ owner: e.target.value === 'owned' ? self.id : null })}
+              value={token.owner || ''}
+              onChange={(e) => patch({ owner: e.target.value || null })}
             >
-              <option value="owned">Personaje de jugador</option>
-              <option value="npc">PNJ / enemigo</option>
+              <option value="">Sin dueño (PNJ / enemigo)</option>
+              <OwnerOptions />
             </select>
+            <span className="hint">
+              Cada jugador controla los tokens que tenga asignados.
+            </span>
           </div>
 
           <div className="row" style={{ marginTop: 4 }}>
@@ -221,4 +247,17 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function OwnerOptions() {
+  const players = useStore((s) => s.players);
+  return (
+    <>
+      {players.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name}
+        </option>
+      ))}
+    </>
+  );
 }

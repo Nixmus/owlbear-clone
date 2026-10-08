@@ -32,7 +32,7 @@ export default function Chat() {
             id: nanoid(),
             author: self.name,
             color: self.color,
-            text: `${result.formula} = ${result.total}  ${result.breakdown}`,
+            text: `🎲 ${result.formula} = ${result.total}  ${result.breakdown}`,
             ts: Date.now(),
           },
         });

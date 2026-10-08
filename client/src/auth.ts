@@ -11,6 +11,10 @@ interface AuthStore {
   register: (username: string, email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => void;
   updateProfile: (patch: { displayName?: string; bio?: string; avatarUrl?: string }) => Promise<void>;
+  forgotPassword: (username: string) => Promise<string | null>;
+  resetPassword: (token: string, password: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  deleteAccount: () => Promise<void>;
 }
 
 const savedName = localStorage.getItem('vtt.name');
@@ -78,5 +82,24 @@ export const useAuth = create<AuthStore>((set) => ({
   updateProfile: async (patch) => {
     const { user } = await api.patch<{ user: User }>('/me', patch);
     set({ user });
+  },
+
+  forgotPassword: async (username) => {
+    const res = await api.post<{ ok: boolean; token?: string }>('/auth/forgot', { username });
+    return res.token || null;
+  },
+
+  resetPassword: async (token, password) => {
+    await api.post('/auth/reset', { token, password });
+  },
+
+  changePassword: async (currentPassword, newPassword) => {
+    await api.post('/me/password', { currentPassword, newPassword });
+  },
+
+  deleteAccount: async () => {
+    await api.del('/me');
+    setToken(null);
+    set({ user: null });
   },
 }));

@@ -87,6 +87,14 @@ CREATE TABLE IF NOT EXISTS rooms (
   state       TEXT NOT NULL DEFAULT '{}',
   updated_at  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  token      TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL,
+  used       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
 `);
 
 export default db;

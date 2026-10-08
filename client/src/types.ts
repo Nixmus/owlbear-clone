@@ -98,7 +98,8 @@ export type Tool =
   | 'pen'
   | 'line'
   | 'rect'
-  | 'circle';
+  | 'circle'
+  | 'eraser';
 
 export interface Viewport {
   x: number;

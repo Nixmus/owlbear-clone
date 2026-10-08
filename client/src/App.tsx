@@ -6,6 +6,7 @@ import ScenePanel from './components/ScenePanel';
 import Inspector from './components/Inspector';
 import Chat from './components/Chat';
 import JoinDialog from './components/JoinDialog';
+import UserManager from './components/UserManager';
 import Hub from './components/Hub';
 import { useStore } from './store';
 import { useAuth } from './auth';
@@ -86,6 +87,7 @@ function Table() {
   const [brushSize, setBrushSize] = useState(90);
   const [fogOccludes, setFogOccludes] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showUsers, setShowUsers] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => setSelectedId((e as CustomEvent<string | null>).detail);
@@ -98,16 +100,15 @@ function Table() {
   }, [color]);
 
   useEffect(() => {
+    // Identity (name/color) can be restored; the ROLE is assigned by the server.
     const name = localStorage.getItem('vtt.name');
     const savedColor = localStorage.getItem('vtt.color');
-    const role = localStorage.getItem('vtt.role');
-    if (name || savedColor || role) {
+    if (name || savedColor) {
       useStore.setState({
         self: {
           ...useStore.getState().self,
           name: name || self.name,
           color: savedColor || self.color,
-          role: role === 'gm' ? 'gm' : 'player',
         },
       });
     }
@@ -176,11 +177,14 @@ function Table() {
         tool={tool}
         setTool={setTool}
         role={role}
+        color={color}
+        setColor={setColor}
         canUndo={sceneDrawings.length > 0}
         onUndo={undoDrawing}
         onClearDrawings={clearDrawings}
         onClearFog={clearFog}
         onAddToken={addToken}
+        onManageUsers={() => setShowUsers(true)}
       />
 
       <Board
@@ -210,6 +214,8 @@ function Table() {
       <button className="leave-btn" onClick={leaveTable} title="Salir de esta mesa">
         <Icon name="close" size={14} /> {isLogged ? 'Volver al panel' : 'Salir de la mesa'}
       </button>
+
+      {showUsers && <UserManager onClose={() => setShowUsers(false)} />}
 
       {!joined && <JoinDialog />}
     </div>

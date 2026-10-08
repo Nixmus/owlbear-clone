@@ -17,13 +17,15 @@ export type Permission =
   | 'token.moveAny'
   | 'token.deleteAny'
   | 'token.hide'
+  | 'token.assignOwner'
   | 'draw'
   | 'fog.edit'
   | 'fog.clear'
   | 'drawing.clear'
   | 'measure'
   | 'chat'
-  | 'seeHiddenTokens';
+  | 'seeHiddenTokens'
+  | 'user.manage';
 
 const GRANTS: Record<Role, Permission[]> = {
   gm: [
@@ -32,6 +34,7 @@ const GRANTS: Record<Role, Permission[]> = {
     'token.moveAny',
     'token.deleteAny',
     'token.hide',
+    'token.assignOwner',
     'draw',
     'fog.edit',
     'fog.clear',
@@ -39,8 +42,9 @@ const GRANTS: Record<Role, Permission[]> = {
     'measure',
     'chat',
     'seeHiddenTokens',
+    'user.manage',
   ],
-  player: ['token.add', 'draw', 'measure', 'chat'],
+  player: ['token.add', 'token.assignOwner', 'draw', 'measure', 'chat'],
   observer: ['measure', 'chat'],
 };
 

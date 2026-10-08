@@ -85,6 +85,11 @@ textarea {
   gap: 6px;
   white-space: nowrap;
 }
+.brand svg {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
 
 .brand .owl {
   font-size: 18px;
@@ -1292,4 +1297,166 @@ textarea {
 .quickplay-fab:hover {
   background: var(--accent);
   color: #10131c;
+}
+
+/* ---------- Role pill / misc ---------- */
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tool.color-tool {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.tool.color-tool span {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 2px solid #fff3;
+}
+.tool.color-tool input[type='color'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.card.wide {
+  width: min(520px, 92vw);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  text-align: left;
+  padding: 0;
+  text-decoration: underline;
+  align-self: flex-start;
+}
+.link-btn:hover {
+  color: var(--accent-2);
+}
+
+.danger-zone {
+  border-color: var(--danger);
+}
+.danger-zone h3 {
+  color: var(--danger);
+}
+
+/* ================================================================== */
+/* Mobile / touch adaptations                                         */
+/* ================================================================== */
+@media (max-width: 820px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px 1fr auto;
+    grid-template-areas:
+      'top'
+      'board'
+      'tools';
+  }
+
+  /* tool rail becomes a horizontal scrollable bar at the bottom */
+  .tools {
+    flex-direction: row;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding: 6px 8px;
+    gap: 6px;
+  }
+  .tool {
+    width: 44px;
+    height: 44px;
+    flex: none;
+  }
+  .tool-divider {
+    width: 1px;
+    height: 28px;
+    margin: 0 4px;
+    flex: none;
+  }
+  .tool[data-tip]:hover::after {
+    display: none;
+  }
+
+  /* side panels become a bottom sheet-ish scroll */
+  .side {
+    position: absolute;
+    top: 48px;
+    right: 8px;
+    left: 8px;
+    bottom: 66px;
+    width: auto;
+    overflow-y: auto;
+  }
+  .panel-body {
+    max-height: none;
+  }
+
+  .topbar {
+    gap: 6px;
+    padding: 0 8px;
+    overflow-x: auto;
+  }
+  .brand span {
+    display: none;
+  }
+  .roomchip span:not(.status-dot) {
+    display: none;
+  }
+  .chat {
+    height: 300px;
+  }
+  .leave-btn {
+    top: 56px;
+  }
+
+  .hub-layout {
+    grid-template-columns: 1fr;
+  }
+  .hub-sidebar {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 10px;
+    gap: 8px;
+    overflow-x: auto;
+  }
+  .hub-sidebar-brand {
+    display: none;
+  }
+  .hub-nav {
+    flex-direction: row;
+  }
+  .hub-nav-item {
+    white-space: nowrap;
+  }
+  .hub-sidebar-foot {
+    margin-top: 0;
+  }
+  .hub-sidebar-foot .btn {
+    width: auto;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar .brand,
+  .role-pill {
+    display: none;
+  }
 }

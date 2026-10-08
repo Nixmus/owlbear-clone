@@ -13,15 +13,13 @@ export default function JoinDialog() {
 
   const [name, setName] = useState(self.name === 'Player' ? '' : self.name);
   const [color, setColor] = useState(self.color);
-  const [role, setRole] = useState<'gm' | 'player'>('gm');
   const [room, setRoom] = useState(roomId);
 
   const join = () => {
     const finalName = name.trim() || 'Aventurero';
     localStorage.setItem('vtt.name', finalName);
     localStorage.setItem('vtt.color', color);
-    localStorage.setItem('vtt.role', role);
-    useStore.setState({ self: { ...self, name: finalName, color, role } });
+    useStore.setState({ self: { ...self, name: finalName, color } });
     const url = new URL(location.href);
     url.searchParams.set('room', room);
     history.replaceState(null, '', url.toString());
@@ -34,7 +32,7 @@ export default function JoinDialog() {
         <h1>
           <Brand withName={false} /> Unirse a una mesa
         </h1>
-        <p>Elige tu nombre y color, y comparte el código de sala con tus jugadores.</p>
+        <p>Elige tu nombre y color. El primer jugador en entrar será el director de juego.</p>
 
         <div className="field">
           <label>Tu nombre</label>
@@ -78,18 +76,6 @@ export default function JoinDialog() {
           </div>
         </div>
 
-        <div className="field">
-          <label>Rol</label>
-          <div className="role-toggle">
-            <button className={role === 'gm' ? 'active' : ''} onClick={() => setRole('gm')}>
-              <Icon name="crown" size={14} /> Director de juego
-            </button>
-            <button className={role === 'player' ? 'active' : ''} onClick={() => setRole('player')}>
-              <Icon name="user" size={14} /> Jugador
-            </button>
-          </div>
-        </div>
-
         <button className="btn primary big" onClick={join}>
           Entrar a la mesa
         </button>
@@ -97,3 +83,4 @@ export default function JoinDialog() {
     </div>
   );
 }
+
