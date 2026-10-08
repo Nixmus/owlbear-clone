@@ -198,10 +198,12 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
       // Normalize the optional paint properties instead of trusting the client.
       const fill = incoming.fill == null ? null : String(incoming.fill);
       const opacity = Number(incoming.opacity);
+      const seq = Number(incoming.seq);
       state.drawings.push({
         ...incoming,
         fill,
         opacity: Number.isFinite(opacity) ? clamp01(opacity) : 1,
+        seq: Number.isFinite(seq) ? seq : 0,
       });
       return true;
     }
@@ -231,11 +233,15 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
       if (state.erasers.some((x) => x.id === action.erase.id)) return false;
       const width = Number(action.erase.width);
       if (!Number.isFinite(width) || width <= 0) return false;
+      const seq = Number(action.erase.seq);
       state.erasers.push({
         id: action.erase.id,
         sceneId: action.erase.sceneId,
         width,
         points: action.erase.points.map(Number),
+        // Paint order, assigned client-side and agreed by every client; it only
+        // decides which strokes an eraser hides.
+        seq: Number.isFinite(seq) ? seq : 0,
       });
       return true;
     }

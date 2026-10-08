@@ -100,6 +100,28 @@ export default function Board({
     () => (state.erasers || []).filter((e) => e.sceneId === scene?.id),
     [state.erasers, scene?.id],
   );
+
+  // Erasers that hide a given stroke: only those created after it, and only
+  // when their bounding boxes actually overlap. The cheap box test keeps this
+  // from building a mask for every stroke on the map.
+  const erasersHiding = useCallback(
+    (d: Drawing): EraseStroke[] => {
+      const box = pointsBox(d.points, (d.width || 0) / 2);
+      if (!box) return [];
+      const dSeq = d.seq ?? 0;
+      const out: EraseStroke[] = [];
+      for (const e of sceneErasers) {
+        if ((e.seq ?? 0) <= dSeq) continue;
+        const eb = pointsBox(e.points, (e.width || 0) / 2);
+        if (!eb) continue;
+        if (box.maxX < eb.minX || box.minX > eb.maxX) continue;
+        if (box.maxY < eb.minY || box.minY > eb.maxY) continue;
+        out.push(e);
+      }
+      return out;
+    },
+    [sceneErasers],
+  );
   const sceneFog = useMemo(
     () => state.fog.filter((f) => f.sceneId === scene?.id),
     [state.fog, scene?.id],
@@ -551,30 +573,14 @@ export default function Board({
           height={scene.height}
           style={{ overflow: 'visible', pointerEvents: tool === 'select' ? 'auto' : 'none' }}
         >
-          <defs>
-            <mask
-              id={`erase-mask-${scene.id}`}
-              maskUnits="userSpaceOnUse"
-              x={0}
-              y={0}
-              width={scene.width}
-              height={scene.height}
-            >
-              <rect x={0} y={0} width={scene.width} height={scene.height} fill="#fff" />
-              {sceneErasers.map((e) => (
-                <ErasePath key={e.id} width={e.width} points={e.points} />
-              ))}
-            </mask>
-          </defs>
-
-          {/* Committed drawings are masked, so the eraser hides what was already
-              there. The in-progress stroke is deliberately rendered outside the
-              mask: inside it, every previous erase hole would swallow the new
-              stroke and you could never paint over an erased area. */}
-          <g mask={`url(#erase-mask-${scene.id})`}>
-            {sceneDrawings.map((d) => (
+          {/* Each stroke gets its own mask containing only the erasers made
+              AFTER it. That is what lets you paint over an area you erased
+              earlier: the new stroke has a higher seq, so no eraser applies to
+              it, while older strokes under the eraser stay hidden. */}
+          {sceneDrawings.map((d) => {
+            const hiders = erasersHiding(d);
+            const inner = (
               <g
-                key={d.id}
                 onPointerDown={(e) => {
                   if (tool !== 'select') return;
                   e.stopPropagation();
@@ -587,8 +593,30 @@ export default function Board({
                 <DrawingShape d={d} hit />
                 <DrawingShape d={d} selected={d.id === selectedDrawingId} />
               </g>
-            ))}
-          </g>
+            );
+            if (!hiders.length) return <g key={d.id}>{inner}</g>;
+            const maskId = `em-${scene.id}-${d.id}`;
+            return (
+              <g key={d.id}>
+                <defs>
+                  <mask
+                    id={maskId}
+                    maskUnits="userSpaceOnUse"
+                    x={0}
+                    y={0}
+                    width={scene.width}
+                    height={scene.height}
+                  >
+                    <rect x={0} y={0} width={scene.width} height={scene.height} fill="#fff" />
+                    {hiders.map((e) => (
+                      <ErasePath key={e.id} width={e.width} points={e.points} />
+                    ))}
+                  </mask>
+                </defs>
+                <g mask={`url(#${maskId})`}>{inner}</g>
+              </g>
+            );
+          })}
 
           {/* Live preview of the stroke being drawn, and of the eraser in use. */}
           {draftPoints && (
@@ -894,6 +922,25 @@ function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hi
     default:
       return null;
   }
+}
+
+/** Axis-aligned bounds of a flattened point list, grown by `pad`. */
+function pointsBox(points: number[], pad: number) {
+  if (points.length < 2) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const x = points[i];
+    const y = points[i + 1];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  if (minX === Infinity) return null;
+  return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
 }
 
 /**

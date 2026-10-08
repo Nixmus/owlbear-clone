@@ -42,6 +42,8 @@ export interface Drawing {
   fill?: string | null;
   /** 0..1. Defaults to fully opaque when absent. */
   opacity?: number;
+  /** Creation order within the scene; erases only hide earlier strokes. */
+  seq?: number;
 }
 
 /**
@@ -55,6 +57,8 @@ export interface EraseStroke {
   sceneId: string;
   width: number; // diameter of the eraser in world units
   points: number[]; // flattened [x1,y1,x2,y2,...]
+  /** Creation order within the scene; only strokes older than this are hidden. */
+  seq?: number;
 }
 
 export interface FogShape {

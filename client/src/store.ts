@@ -59,6 +59,18 @@ interface Store {
 type Undoable = { kind: 'drawing.add' | 'erase.add'; id: string };
 const undoStack: Undoable[] = [];
 
+/**
+ * Paint order for a scene. Every client runs this reducer over the same actions
+ * in the same order, so they all assign the same seq to the same stroke, which
+ * is what lets the eraser hide old strokes without hiding new ones drawn after
+ * it. The server just stores the value.
+ */
+let paintSeq = 0;
+function nextSeq(current: number | undefined): number {
+  paintSeq = Math.max(paintSeq, current ?? 0) + 1;
+  return paintSeq;
+}
+
 function emptyState(roomId: string): RoomState {
   const scene: Scene = {
     id: nanoid(10),
@@ -122,10 +134,11 @@ export function reduce(state: RoomState, action: Action): RoomState {
       };
     case 'token.remove':
       return { ...state, tokens: state.tokens.filter((t) => t.id !== action.id) };
-    case 'drawing.add':
-      return state.drawings.some((d) => d.id === action.drawing.id)
-        ? state
-        : { ...state, drawings: [...state.drawings, action.drawing] };
+    case 'drawing.add': {
+      if (state.drawings.some((d) => d.id === action.drawing.id)) return state;
+      const seq = nextSeq(action.drawing.seq);
+      return { ...state, drawings: [...state.drawings, { ...action.drawing, seq }] };
+    }
     case 'drawing.update':
       return {
         ...state,
@@ -141,10 +154,12 @@ export function reduce(state: RoomState, action: Action): RoomState {
         drawings: state.drawings.filter((d) => d.sceneId !== action.sceneId),
         erasers: (state.erasers || []).filter((e) => e.sceneId !== action.sceneId),
       };
-    case 'erase.add':
-      return (state.erasers || []).some((e) => e.id === action.erase.id)
-        ? state
-        : { ...state, erasers: [...(state.erasers || []), action.erase] };
+    case 'erase.add': {
+      const list = state.erasers || [];
+      if (list.some((e) => e.id === action.erase.id)) return state;
+      const seq = nextSeq(action.erase.seq);
+      return { ...state, erasers: [...list, { ...action.erase, seq }] };
+    }
     case 'erase.remove':
       return { ...state, erasers: (state.erasers || []).filter((e) => e.id !== action.id) };
     case 'erase.clear':
