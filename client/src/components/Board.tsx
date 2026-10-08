@@ -854,15 +854,17 @@ function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hi
   // Opacity belongs to the fill only. Applying it to the whole shape would make
   // the outline translucent too, which is not what "fill opacity" means.
   const opacity = Math.max(0, Math.min(1, d.opacity ?? 1));
-  // Only closed shapes can be filled.
+  // Only closed shapes can be filled. Resolving the colour to a plain string
+  // here keeps `d.fill` (string | null | undefined) out of the JSX props.
   const fillable = d.kind === 'rect' || d.kind === 'circle';
-  const hasFill = !hit && fillable && !!d.fill;
+  const fill = !hit && fillable && d.fill ? d.fill : 'none';
+  const hasFill = fill !== 'none';
   const common = {
     stroke: hit ? 'transparent' : selected ? 'var(--accent)' : d.color,
     strokeWidth: hit ? Math.max(d.width, 16) : selected ? d.width + 2 : d.width,
     strokeLinecap: 'round' as const,
     pointerEvents: hit ? ('stroke' as const) : ('none' as const),
-    fill: hasFill ? d.fill : 'none',
+    fill,
     // SVG presentation attribute: only the fill fades, the stroke stays solid.
     fillOpacity: hasFill ? opacity : 1,
   };

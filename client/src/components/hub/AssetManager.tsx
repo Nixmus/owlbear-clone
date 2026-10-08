@@ -184,8 +184,8 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     return r.folder.id;
   }
 
-  function manageError(): string | null {
-    return canEdit ? null : 'Solo puedes gestionar las carpetas que creaste tú.';
+  function manageError(): string {
+    return 'Solo puedes gestionar las carpetas que creaste tú.';
   }
 
   /**
