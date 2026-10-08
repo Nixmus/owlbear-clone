@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, assetUrl, downloadAssetZip, type Asset } from '../../api';
 import Icon from '../Icon';
+import SearchField from '../SearchField';
 
 const KINDS = [
   { value: 'image', label: 'Imagen' },
@@ -10,21 +11,38 @@ const KINDS = [
   { value: 'doc', label: 'Documento' },
 ];
 
+function formatDate(ts: number): string {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 export default function AssetManager({ campaignId }: { campaignId: string }) {
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [kind, setKind] = useState('image');
-  const [folder, setFolder] = useState('');
+  const [cwd, setCwd] = useState(''); // '' = root (sin carpeta)
+  const [uploadKind, setUploadKind] = useState('image');
+  const [onlyKind, setOnlyKind] = useState('all');
+  const [query, setQuery] = useState('');
+  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<Asset | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const [viewing, setViewing] = useState<Asset | null>(null);
-  const [onlyKind, setOnlyKind] = useState('all');
-  const [onlyFolder, setOnlyFolder] = useState('all');
-  const [query, setQuery] = useState('');
+  const [dropActive, setDropActive] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId]);
+
+  // Reset navigation when switching campaign.
+  useEffect(() => {
+    setCwd('');
+    setQuery('');
+    setSelectedId(null);
   }, [campaignId]);
 
   async function load() {
@@ -32,8 +50,9 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     setAssets(d.assets);
   }
 
+  /** Uploads land in the folder currently open - no separate target field. */
   async function onFiles(files: FileList | null) {
-    if (!files) return;
+    if (!files || files.length === 0) return;
     setUploading(true);
     setError('');
     try {
@@ -42,8 +61,8 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
         form.append('file', file);
         form.append('campaignId', campaignId);
         form.append('name', file.name);
-        form.append('kind', kind);
-        form.append('folder', folder);
+        form.append('kind', uploadKind);
+        form.append('folder', cwd);
         await api.upload('/upload', form);
       }
       await load();
@@ -59,6 +78,7 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     if (!confirm('¿Eliminar este recurso?')) return;
     await api.del(`/assets/${id}`);
     setViewing(null);
+    setSelectedId(null);
     load();
   }
 
@@ -71,151 +91,290 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     [assets],
   );
 
-  const visible = useMemo(
-    () =>
-      assets.filter((a) => {
-        if (onlyKind !== 'all' && a.kind !== onlyKind) return false;
-        if (onlyFolder !== 'all' && a.folder !== onlyFolder) return false;
-        if (query && !a.name.toLowerCase().includes(query.toLowerCase())) return false;
-        return true;
-      }),
-    [assets, onlyKind, onlyFolder, query],
-  );
+  const files = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return assets
+      .filter((a) => (a.folder || '') === cwd)
+      .filter((a) => onlyKind === 'all' || a.kind === onlyKind)
+      .filter((a) => !q || a.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [assets, cwd, onlyKind, query]);
+
+  // Sub-folders only exist at the root: `folder` is a flat, single-level field.
+  const subFolders = cwd === '' ? folderNames : [];
+
+  function openFolder(name: string) {
+    setCwd(name);
+    setSelectedId(null);
+    setQuery('');
+  }
+
+  function goUp() {
+    if (cwd) {
+      setCwd('');
+      setSelectedId(null);
+    }
+  }
+
+  function openAsset(a: Asset) {
+    if (a.mime.startsWith('image/') || a.mime.startsWith('audio/')) setViewing(a);
+    else window.open(assetUrl(a.url) || a.url, '_blank', 'noreferrer');
+  }
 
   async function downloadZip() {
     setError('');
     try {
-      await downloadAssetZip(campaignId, onlyFolder === 'all' ? undefined : onlyFolder);
+      await downloadAssetZip(campaignId, cwd === '' ? undefined : cwd);
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') {
+      if (viewing) setViewing(null);
+      else if (query) setQuery('');
+      else goUp();
+      return;
+    }
+    if (e.key === 'Backspace' && !query) {
+      e.preventDefault();
+      goUp();
+      return;
+    }
+    if (e.key !== 'Enter' || !selectedId) return;
+    const asset = assets.find((a) => a.id === selectedId);
+    if (asset) openAsset(asset);
+  }
+
   return (
-    <div className="hub">
-      <div className="hub-card">
-        <div className="row spread">
-          <div>
-            <h3>Recursos de la campaña</h3>
-            <p className="muted" style={{ margin: 0 }}>
-              Mapas, retratos, tokens, música y documentos. Organízalos en carpetas y descárgalos en ZIP.
-            </p>
-          </div>
-          <div className="row" style={{ flex: 'none', gap: 8 }}>
-            <button className="btn" onClick={downloadZip} title="Descargar recursos en ZIP">
-              <Icon name="file" size={14} /> ZIP
+    <div className="fm" onKeyDown={onKeyDown} tabIndex={-1}>
+      {/* ---------------- toolbar ---------------- */}
+      <div className="fm-toolbar">
+        <div className="fm-nav">
+          <button className="icon-btn" onClick={goUp} disabled={!cwd} title="Subir un nivel">
+            <Icon name="back" size={15} />
+          </button>
+          <nav className="fm-crumbs" aria-label="Ruta de carpetas">
+            <button className={`fm-crumb ${cwd === '' ? 'active' : ''}`} onClick={() => openFolder('')}>
+              Recursos
             </button>
-            <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
-              {uploading ? (
-                'Subiendo…'
-              ) : (
-                <>
-                  <Icon name="upload" size={14} /> Subir
-                </>
-              )}
-            </button>
-          </div>
+            {cwd && (
+              <>
+                <span className="fm-sep">/</span>
+                <span className="fm-crumb active" title={cwd}>
+                  {cwd}
+                </span>
+              </>
+            )}
+          </nav>
         </div>
 
-        <div className="filters">
-          <div className="field">
-            <label>Búsqueda</label>
-            <input placeholder="Buscar por nombre…" value={query} onChange={(e) => setQuery(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>Tipo</label>
-            <select value={onlyKind} onChange={(e) => setOnlyKind(e.target.value)}>
-              <option value="all">Todos</option>
-              {KINDS.map((k) => (
-                <option key={k.value} value={k.value}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Carpeta</label>
-            <select value={onlyFolder} onChange={(e) => setOnlyFolder(e.target.value)}>
-              <option value="all">Todas</option>
-              {folderNames.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Subir a carpeta</label>
-            <input
-              placeholder="(sin carpeta)"
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-              list="folder-list"
-            />
-            <datalist id="folder-list">
-              {folderNames.map((f) => (
-                <option key={f} value={f} />
-              ))}
-            </datalist>
-          </div>
-        </div>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Buscar en esta carpeta…"
+          label="Buscar recursos"
+        />
 
-        <div className="row" style={{ flex: 'none', gap: 8 }}>
-          <span className="muted" style={{ alignSelf: 'center' }}>
-            Tipo al subir:
-          </span>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ maxWidth: 160 }}>
+        <div className="fm-actions">
+          <select
+            className="fm-select"
+            value={onlyKind}
+            onChange={(e) => setOnlyKind(e.target.value)}
+            title="Filtrar por tipo"
+            aria-label="Filtrar por tipo"
+          >
+            <option value="all">Todos los tipos</option>
             {KINDS.map((k) => (
               <option key={k.value} value={k.value}>
                 {k.label}
               </option>
             ))}
           </select>
-        </div>
 
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          style={{ display: 'none' }}
-          onChange={(e) => onFiles(e.target.files)}
-        />
-        {error && <p className="error">{error}</p>}
+          <div className="fm-viewtoggle" role="group" aria-label="Vista">
+            <button
+              className={layout === 'grid' ? 'on' : ''}
+              onClick={() => setLayout('grid')}
+              title="Vista de iconos"
+              aria-label="Vista de iconos"
+            >
+              <Icon name="overview" size={14} />
+            </button>
+            <button
+              className={layout === 'list' ? 'on' : ''}
+              onClick={() => setLayout('list')}
+              title="Vista de lista"
+              aria-label="Vista de lista"
+            >
+              <Icon name="file" size={14} />
+            </button>
+          </div>
 
-        <div className="asset-grid">
-          {visible.map((a) => (
-            <div key={a.id} className="asset-card">
-              <div className="asset-preview" onClick={() => setViewing(a)}>
-                {a.mime.startsWith('image/') ? (
-                  <img src={assetUrl(a.url) || a.url} alt={a.name} />
-                ) : (
-                  <div className="asset-file">
-                    <Icon name="file" size={34} />
-                  </div>
-                )}
-              </div>
-              <div className="asset-meta">
-                <span className="asset-name" title={a.name}>
-                  {a.name}
-                </span>
-                <div className="row" style={{ gap: 4 }}>
-                  <span className="chip">{kindLabel(a.kind)}</span>
-                  {a.folder && <span className="chip">{a.folder}</span>}
-                </div>
-              </div>
-              <div className="asset-actions">
-                <button className="icon-btn" onClick={() => copyUrl(a.url)} title="Copiar URL">
-                  <Icon name="link" size={15} />
-                </button>
-                <button className="icon-btn danger" onClick={() => remove(a.id)} title="Eliminar">
-                  <Icon name="trash" size={15} />
-                </button>
-              </div>
-            </div>
-          ))}
-          {visible.length === 0 && <p className="muted">No hay recursos que coincidan.</p>}
+          <button className="btn" onClick={downloadZip} title="Descargar esta carpeta en ZIP">
+            <Icon name="file" size={14} />
+            <span className="hide-sm">ZIP</span>
+          </button>
+
+          <div className="fm-upload">
+            <select
+              className="fm-select"
+              value={uploadKind}
+              onChange={(e) => setUploadKind(e.target.value)}
+              title="Tipo de archivo al subir"
+              aria-label="Tipo de archivo al subir"
+            >
+              {KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn primary"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+            >
+              <Icon name="upload" size={14} />
+              {uploading ? 'Subiendo…' : 'Subir'}
+            </button>
+          </div>
         </div>
       </div>
+
+      <p className="fm-hint muted">
+        {subFolders.length + files.length === 0
+          ? 'Esta carpeta está vacía. Arrastra archivos aquí o usa Subir.'
+          : `${subFolders.length} ${subFolders.length === 1 ? 'carpeta' : 'carpetas'} · ${files.length} ${
+              files.length === 1 ? 'archivo' : 'archivos'
+            }${query ? ` para “${query}”` : ''}`}
+      </p>
+
+      {/* ---------------- body ---------------- */}
+      <div className="fm-body">
+        <aside className="fm-side">
+          <button
+            className={`fm-side-item ${cwd === '' ? 'active' : ''}`}
+            onClick={() => openFolder('')}
+          >
+            <Icon name="home" size={15} />
+            <span>Todos los recursos</span>
+          </button>
+          {folderNames.map((f) => (
+            <button
+              key={f}
+              className={`fm-side-item ${cwd === f ? 'active' : ''}`}
+              onClick={() => openFolder(f)}
+            >
+              <Icon name="folder" size={15} />
+              <span className="fm-side-name">{f}</span>
+              <em>{assets.filter((a) => a.folder === f).length}</em>
+            </button>
+          ))}
+        </aside>
+
+        <div
+          className={`fm-content ${layout === 'list' ? 'as-list' : ''} ${dropActive ? 'drop' : ''}`}
+          onDragEnter={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return;
+            dragDepth.current += 1;
+            setDropActive(true);
+          }}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+          }}
+          onDragLeave={() => {
+            dragDepth.current = Math.max(0, dragDepth.current - 1);
+            if (dragDepth.current === 0) setDropActive(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            dragDepth.current = 0;
+            setDropActive(false);
+            void onFiles(e.dataTransfer.files);
+          }}
+        >
+          {subFolders.map((f) => (
+            <button key={f} className="fm-item fm-folder" onClick={() => openFolder(f)}>
+              <span className="fm-thumb">
+                <Icon name="folder" size={34} />
+              </span>
+              <span className="fm-item-name">{f}</span>
+              <span className="fm-item-sub">
+                {assets.filter((a) => a.folder === f).length}{' '}
+                {assets.filter((a) => a.folder === f).length === 1 ? 'archivo' : 'archivos'}
+              </span>
+            </button>
+          ))}
+
+          {files.map((a) => (
+            <div
+              key={a.id}
+              className={`fm-item ${selectedId === a.id ? 'selected' : ''}`}
+              onClick={() => setSelectedId(a.id)}
+              onDoubleClick={() => openAsset(a)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') openAsset(a);
+              }}
+            >
+              <span className="fm-thumb">
+                {a.mime.startsWith('image/') ? (
+                  <img src={assetUrl(a.url) || a.url} alt="" loading="lazy" />
+                ) : (
+                  <Icon name="file" size={30} />
+                )}
+              </span>
+              <span className="fm-item-name" title={a.name}>
+                {a.name}
+              </span>
+              <span className="fm-item-sub">
+                {kindLabel(a.kind)}
+                {formatDate(a.createdAt) ? ` · ${formatDate(a.createdAt)}` : ''}
+              </span>
+              <span className="fm-item-actions">
+                <button
+                  className="icon-btn"
+                  title="Copiar URL"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyUrl(a.url);
+                  }}
+                >
+                  <Icon name="link" size={14} />
+                </button>
+                <button
+                  className="icon-btn danger"
+                  title="Eliminar"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    remove(a.id);
+                  }}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </span>
+            </div>
+          ))}
+
+          {subFolders.length === 0 && files.length === 0 && (
+            <p className="muted fm-empty">
+              {query ? `Ningún archivo coincide con “${query}”.` : 'Esta carpeta está vacía.'}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => onFiles(e.target.files)}
+      />
+      {error && <p className="error">{error}</p>}
 
       {viewing && (
         <div className="overlay" onClick={() => setViewing(null)}>
@@ -228,10 +387,8 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             </div>
             {viewing.mime.startsWith('image/') ? (
               <img className="asset-viewer" src={assetUrl(viewing.url) || viewing.url} alt={viewing.name} />
-            ) : viewing.mime.startsWith('audio/') ? (
-              <audio controls src={assetUrl(viewing.url) || viewing.url} style={{ width: '100%' }} />
             ) : (
-              <p className="muted">Vista previa no disponible. Usa el enlace para abrirlo.</p>
+              <audio controls src={assetUrl(viewing.url) || viewing.url} style={{ width: '100%' }} />
             )}
             <div className="row" style={{ gap: 8 }}>
               <button className="btn" onClick={() => copyUrl(viewing.url)}>

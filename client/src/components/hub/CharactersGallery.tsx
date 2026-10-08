@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, assetUrl, type GlobalCharacter } from '../../api';
 import Icon from '../Icon';
+import SearchField from '../SearchField';
 
 type Ownership = 'all' | 'mine' | 'others';
 type Kind = 'all' | 'pc' | 'npc' | 'monster';
@@ -48,10 +49,11 @@ export default function CharactersGallery({ onOpenCampaign }: { onOpenCampaign: 
       <div className="filters">
         <div className="field">
           <label>Búsqueda</label>
-          <input
-            placeholder="Buscar por nombre…"
+          <SearchField
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={setQuery}
+            placeholder="Buscar por nombre…"
+            label="Buscar personajes por nombre"
           />
         </div>
         <div className="field">
@@ -83,6 +85,11 @@ export default function CharactersGallery({ onOpenCampaign }: { onOpenCampaign: 
           </select>
         </div>
       </div>
+
+      <p className="muted result-count">
+        {filtered.length === 1 ? '1 personaje' : `${filtered.length} personajes`}
+        {query ? ` para “${query}”` : ''}
+      </p>
 
       <div className="char-grid">
         {filtered.map((c) => (

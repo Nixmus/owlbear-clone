@@ -81,6 +81,16 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.6-3.6" />
+    </>
+  ),
+  folder: <path d="M3 7a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
+  folderOpen: (
+    <path d="M3 7a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v1H3zM3 10h18l-2 8a2 2 0 0 1-2 1.6H6.2A2 2 0 0 1 4.3 18z" />
+  ),
 };
 
 export type IconName = keyof typeof paths;
