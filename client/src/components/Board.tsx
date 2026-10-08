@@ -357,17 +357,18 @@ export default function Board({
       case 'decal': {
         if (!can(role, 'scene.manage')) break;
         if (!decalImage) break;
-        // Place centred on the click, keeping the image's aspect ratio.
-        const w = Math.max(8, decalSize);
-        const h = w * (decalImage.h / Math.max(1, decalImage.w));
+        // Place centred on the click, keeping the image's aspect ratio. `w` here is
+        // the click position (a Vec), so the size gets its own names.
+        const dw = Math.max(8, decalSize);
+        const dh = dw * (decalImage.h / Math.max(1, decalImage.w));
         const decal: Decal = {
           id: nanoid(),
           sceneId: scene.id,
           url: decalImage.url,
-          x: w.x - w / 2,
-          y: w.y - h / 2,
-          w,
-          h,
+          x: w.x - dw / 2,
+          y: w.y - dh / 2,
+          w: dw,
+          h: dh,
           opacity: decalOpacity,
         };
         dispatch({ kind: 'decal.add', decal });
