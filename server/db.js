@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   ended_at    INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS sheet_templates (
+  id          TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  schema      TEXT NOT NULL DEFAULT '{}', -- JSON { attributes: string[], fields: SheetField[] }
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS asset_folders (
   id          TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
@@ -113,6 +122,9 @@ function columnExists(table, column) {
 }
 if (!columnExists('assets', 'folder')) {
   db.exec("ALTER TABLE assets ADD COLUMN folder TEXT NOT NULL DEFAULT ''");
+}
+if (!columnExists('characters', 'template_id')) {
+  db.exec('ALTER TABLE characters ADD COLUMN template_id TEXT');
 }
 
 export default db;

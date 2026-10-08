@@ -1,13 +1,41 @@
-import { useEffect, useRef, useState } from 'react';
-import { api, assetUrl, uploadImage, type Character } from '../../api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api, assetUrl, uploadImage, type Character, type SheetField, type SheetSchema, type SheetTemplate } from '../../api';
 import Icon from '../Icon';
+import SheetTemplateEditor from './SheetTemplateEditor';
+
+/**
+ * The default sheet, used whenever a character has no template. The attribute
+ * keys are lowercase on purpose: existing characters already store
+ * `attributes.str` etc, and switching to uppercase would blank their values.
+ */
+const BUILTIN_SCHEMA: SheetSchema = {
+  fields: [
+    { key: 'class', label: 'Clase', type: 'text' },
+    { key: 'race', label: 'Raza', type: 'text' },
+    { key: 'level', label: 'Nivel', type: 'number', width: 'tight' },
+    { key: 'hp.current', label: 'PG actuales', type: 'number' },
+    { key: 'hp.max', label: 'PG máximos', type: 'number' },
+    { key: 'ac', label: 'CA', type: 'number', width: 'tight' },
+    { key: 'speed', label: 'Velocidad', type: 'number', width: 'tight' },
+    { key: 'keyword', label: 'Palabra clave (hablar en el chat)', type: 'text' },
+    { key: 'skills', label: 'Habilidades', type: 'textarea' },
+    { key: 'inventory', label: 'Inventario', type: 'textarea' },
+    { key: 'spells', label: 'Conjuros', type: 'textarea' },
+    { key: 'notes', label: 'Notas', type: 'textarea' },
+  ],
+  attributes: ['str', 'dex', 'con', 'int', 'wis', 'cha'],
+};
 
 export default function CharacterManager({ campaignId }: { campaignId: string }) {
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [templates, setTemplates] = useState<SheetTemplate[]>([]);
   const [selected, setSelected] = useState<Character | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'pc' | 'npc' | 'monster'>('pc');
+  const [templateId, setTemplateId] = useState('');
+  const [canEdit, setCanEdit] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   useEffect(() => {
     load();
@@ -15,8 +43,18 @@ export default function CharacterManager({ campaignId }: { campaignId: string })
   }, [campaignId]);
 
   async function load() {
-    const d = await api.get<{ characters: Character[] }>(`/campaigns/${campaignId}/characters`);
-    setCharacters(d.characters);
+    const [chars, tpls] = await Promise.all([
+      api.get<{ characters: Character[] }>(`/campaigns/${campaignId}/characters`),
+      api.get<{ templates: SheetTemplate[] }>(`/campaigns/${campaignId}/templates`).catch(() => ({
+        templates: [] as SheetTemplate[],
+      })),
+    ]);
+    setCharacters(chars.characters);
+    setTemplates(tpls.templates);
+    api
+      .get<{ role: string }>(`/campaigns/${campaignId}`)
+      .then((d) => setCanEdit(d.role === 'owner' || d.role === 'gm'))
+      .catch(() => setCanEdit(false));
   }
 
   async function create() {
@@ -24,9 +62,13 @@ export default function CharacterManager({ campaignId }: { campaignId: string })
     const { id } = await api.post<{ id: string }>(`/campaigns/${campaignId}/characters`, {
       name,
       kind,
-      data: defaultSheet(kind),
+      // With a template the server seeds the declared fields; without one we keep
+      // the familiar D&D defaults so a new sheet is not all zeroes.
+      data: templateId ? undefined : defaultSheet(kind),
+      templateId: templateId || undefined,
     });
     setName('');
+    setTemplateId('');
     setCreating(false);
     await load();
     const created = (await api.get<{ character: Character }>(`/characters/${id}`)).character;
@@ -34,55 +76,106 @@ export default function CharacterManager({ campaignId }: { campaignId: string })
   }
 
   return (
-    <div className="hub-grid">
-      <div className="hub-card">
-        <div className="row spread">
-          <h3>Personajes y fichas</h3>
-          <button className="btn sm primary" onClick={() => setCreating((v) => !v)}>
-            <Icon name="plus" size={14} /> Nuevo
-          </button>
+    <>
+      <div className="hub-grid">
+        <div className="hub-card">
+          <div className="row spread">
+            <h3>Personajes y fichas</h3>
+            <div className="row" style={{ flex: 'none', gap: 6 }}>
+              {canEdit && (
+                <button
+                  className="btn sm"
+                  onClick={() => setShowTemplates((v) => !v)}
+                  title="Gestionar plantillas de ficha"
+                >
+                  <Icon name="edit" size={13} /> Plantillas
+                </button>
+              )}
+              <button className="btn sm primary" onClick={() => setCreating((v) => !v)}>
+                <Icon name="plus" size={14} /> Nuevo
+              </button>
+            </div>
+          </div>
+
+          {creating && (
+            <div className="create-row">
+              <input
+                placeholder="Nombre del personaje"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+                <option value="pc">Personaje jugador</option>
+                <option value="npc">PNJ</option>
+                <option value="monster">Monstruo</option>
+              </select>
+              <select
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+                title="Tipo de ficha"
+              >
+                <option value="">Ficha básica (D&amp;D)</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <button className="btn primary" onClick={create}>
+                Crear
+              </button>
+            </div>
+          )}
+
+          <ul className="list">
+            {characters.map((c) => (
+              <li
+                key={c.id}
+                className={selected?.id === c.id ? 'active' : ''}
+                onClick={() => setSelected(c)}
+              >
+                <span className="kind-badge">{kindLabel(c.kind)}</span>
+                <b>{c.name}</b>
+                {c.templateId && <span className="chip">{templateName(c.templateId, templates)}</span>}
+              </li>
+            ))}
+            {characters.length === 0 && <li className="muted">Todavía no hay personajes.</li>}
+          </ul>
         </div>
 
-        {creating && (
-          <div className="create-row">
-            <input placeholder="Nombre del personaje" value={name} onChange={(e) => setName(e.target.value)} />
-            <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-              <option value="pc">Personaje jugador</option>
-              <option value="npc">PNJ</option>
-              <option value="monster">Monstruo</option>
-            </select>
-            <button className="btn primary" onClick={create}>
-              Crear
-            </button>
-          </div>
+        {selected && (
+          <CharacterSheet
+            character={selected}
+            templates={templates}
+            canEdit={canEdit}
+            onSaved={load}
+            onDeleted={() => {
+              setSelected(null);
+              load();
+            }}
+          />
         )}
-
-        <ul className="list">
-          {characters.map((c) => (
-            <li key={c.id} className={selected?.id === c.id ? 'active' : ''} onClick={() => setSelected(c)}>
-              <span className="kind-badge">{kindLabel(c.kind)}</span>
-              <b>{c.name}</b>
-            </li>
-          ))}
-          {characters.length === 0 && <li className="muted">Todavía no hay personajes.</li>}
-        </ul>
       </div>
 
-      {selected && (
-        <CharacterSheet
-          character={selected}
-          onSaved={load}
-          onDeleted={() => {
-            setSelected(null);
-            load();
-          }}
-        />
+      {showTemplates && canEdit && (
+        <div className="hub-card" style={{ marginTop: 16 }}>
+          <SheetTemplateEditor
+            campaignId={campaignId}
+            templates={templates}
+            onChanged={load}
+            onClose={() => setShowTemplates(false)}
+          />
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
-function defaultSheet(kind: string) {
+function templateName(id: string, templates: SheetTemplate[]): string {
+  return templates.find((t) => t.id === id)?.name || 'Plantilla';
+}
+
+function defaultSheet(kind: string): Record<string, unknown> {
   return {
     hp: { current: 10, max: 10 },
     ac: 12,
@@ -98,12 +191,18 @@ function defaultSheet(kind: string) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+
 function CharacterSheet({
   character,
+  templates,
+  canEdit,
   onSaved,
   onDeleted,
 }: {
   character: Character;
+  templates: SheetTemplate[];
+  canEdit: boolean;
   onSaved: () => void;
   onDeleted: () => void;
 }) {
@@ -122,6 +221,26 @@ function CharacterSheet({
   const set = (path: string, value: unknown) => {
     setData((d) => setPath({ ...d }, path, value));
   };
+
+  const schema = useMemo<SheetSchema>(() => {
+    if (character.templateId) {
+      const t = templates.find((x) => x.id === character.templateId);
+      if (t?.schema) return t.schema;
+    }
+    return BUILTIN_SCHEMA;
+  }, [character.templateId, templates]);
+
+  const hasKeyword = schema.fields.some((f) => f.key === 'keyword');
+  // The keyword gets its own block up in the header (it needs the chat hint),
+  // so keep it out of the generic grid to avoid rendering it twice.
+  const gridSchema = useMemo<SheetSchema>(
+    () => ({
+      ...schema,
+      fields: hasKeyword ? schema.fields.filter((f) => f.key !== 'keyword') : schema.fields,
+    }),
+    [schema, hasKeyword],
+  );
+  const attrs = (data.attributes as Record<string, number>) || {};
 
   async function sendLogo(file: File) {
     try {
@@ -145,7 +264,12 @@ function CharacterSheet({
     onDeleted();
   }
 
-  const attrs = (data.attributes as Record<string, number>) || {};
+  async function changeTemplate(nextId: string) {
+    await api.patch(`/characters/${character.id}`, { templateId: nextId || null });
+    const fresh = (await api.get<{ character: Character }>(`/characters/${character.id}`)).character;
+    setData(fresh.data);
+    onSaved();
+  }
 
   return (
     <div className="hub-card sheet">
@@ -174,90 +298,60 @@ function CharacterSheet({
               <Icon name="trash" size={15} />
             </button>
           </div>
-          <div className="field">
-            <label>Palabra clave (hablar en el chat)</label>
-            <input
-              placeholder="p. ej. Ale"
-              value={data.keyword || ''}
-              onChange={(e) => set('keyword', e.target.value)}
-            />
-            <span className="hint">
-              Escribe <b>{data.keyword || 'palabra'}: tu mensaje</b> en el chat para hablar como este
-              personaje.
-            </span>
+          {canEdit && templates.length > 0 && (
+            <div className="field">
+              <label>Tipo de ficha</label>
+              <select
+                value={character.templateId || ''}
+                onChange={(e) => changeTemplate(e.target.value)}
+              >
+                <option value="">Ficha básica (D&amp;D)</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <span className="hint">Cambiar de plantilla conserva los valores ya escritos.</span>
+            </div>
+          )}
+          {hasKeyword && (
+            <div className="field">
+              <label>Palabra clave (hablar en el chat)</label>
+              <input
+                placeholder="p. ej. Ale"
+                value={data.keyword || ''}
+                onChange={(e) => set('keyword', e.target.value)}
+              />
+              <span className="hint">
+                Escribe <b>{data.keyword || 'palabra'}: tu mensaje</b> en el chat para hablar como este
+                personaje.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <SheetFields schema={gridSchema} data={data} onSet={set} />
+
+      {schema.attributes.length > 0 && (
+        <>
+          <label className="section-label">Atributos</label>
+          <div className="attrs">
+            {schema.attributes.map((a) => (
+              <div key={a} className="attr">
+                <span>{a.toUpperCase()}</span>
+                <input
+                  type="number"
+                  value={attrs[a] ?? 10}
+                  onChange={(e) => set(`attributes.${a}`, +e.target.value)}
+                />
+                <em>{modifier(attrs[a] ?? 10)}</em>
+              </div>
+            ))}
           </div>
-        </div>
-      </div>
-
-      <div className="row">
-        <div className="field">
-          <label>Clase</label>
-          <input value={data.class || ''} onChange={(e) => set('class', e.target.value)} />
-        </div>
-        <div className="field">
-          <label>Raza</label>
-          <input value={data.race || ''} onChange={(e) => set('race', e.target.value)} />
-        </div>
-        <div className="field tight">
-          <label>Nivel</label>
-          <input type="number" value={data.level ?? 1} onChange={(e) => set('level', +e.target.value)} />
-        </div>
-      </div>
-
-      <div className="row">
-        <div className="field">
-          <label>PG actuales</label>
-          <input
-            type="number"
-            value={data.hp?.current ?? 0}
-            onChange={(e) => set('hp.current', +e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>PG máximos</label>
-          <input type="number" value={data.hp?.max ?? 0} onChange={(e) => set('hp.max', +e.target.value)} />
-        </div>
-        <div className="field tight">
-          <label>CA</label>
-          <input type="number" value={data.ac ?? 0} onChange={(e) => set('ac', +e.target.value)} />
-        </div>
-        <div className="field tight">
-          <label>Velocidad</label>
-          <input type="number" value={data.speed ?? 0} onChange={(e) => set('speed', +e.target.value)} />
-        </div>
-      </div>
-
-      <label className="section-label">Atributos</label>
-      <div className="attrs">
-        {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((a) => (
-          <div key={a} className="attr">
-            <span>{a.toUpperCase()}</span>
-            <input
-              type="number"
-              value={attrs[a] ?? 10}
-              onChange={(e) => set(`attributes.${a}`, +e.target.value)}
-            />
-            <em>{modifier(attrs[a] ?? 10)}</em>
-          </div>
-        ))}
-      </div>
-
-      <div className="field">
-        <label>Habilidades</label>
-        <textarea rows={2} value={data.skills || ''} onChange={(e) => set('skills', e.target.value)} />
-      </div>
-      <div className="field">
-        <label>Inventario</label>
-        <textarea rows={2} value={data.inventory || ''} onChange={(e) => set('inventory', e.target.value)} />
-      </div>
-      <div className="field">
-        <label>Conjuros</label>
-        <textarea rows={2} value={data.spells || ''} onChange={(e) => set('spells', e.target.value)} />
-      </div>
-      <div className="field">
-        <label>Notas</label>
-        <textarea rows={3} value={data.notes || ''} onChange={(e) => set('notes', e.target.value)} />
-      </div>
+        </>
+      )}
 
       <button className="btn primary" onClick={save}>
         {saved ? (
@@ -268,6 +362,57 @@ function CharacterSheet({
           'Guardar ficha'
         )}
       </button>
+    </div>
+  );
+}
+
+/** Renders whatever fields a template declares. Textareas span the full row. */
+function SheetFields({
+  schema,
+  data,
+  onSet,
+}: {
+  schema: SheetSchema;
+  data: Record<string, any>;
+  onSet: (path: string, value: unknown) => void;
+}) {
+  if (!schema.fields.length) return null;
+  return (
+    <div className="sheet-fields">
+      {schema.fields.map((f) => (
+        <Field key={f.key} field={f} data={data} onSet={onSet} />
+      ))}
+    </div>
+  );
+}
+
+function Field({
+  field,
+  data,
+  onSet,
+}: {
+  field: SheetField;
+  data: Record<string, any>;
+  onSet: (path: string, value: unknown) => void;
+}) {
+  const raw = getPath(data, field.key);
+  // Textareas span the row; normal fields share the grid; tight ones stay narrow.
+  const cls =
+    field.type === 'textarea' ? 'field wide' : field.width === 'tight' ? 'field tight' : 'field';
+  return (
+    <div className={cls}>
+      <label>{field.label}</label>
+      {field.type === 'textarea' ? (
+        <textarea rows={2} value={raw ?? ''} onChange={(e) => onSet(field.key, e.target.value)} />
+      ) : field.type === 'number' ? (
+        <input
+          type="number"
+          value={raw ?? 0}
+          onChange={(e) => onSet(field.key, Number(e.target.value))}
+        />
+      ) : (
+        <input value={raw ?? ''} onChange={(e) => onSet(field.key, e.target.value)} />
+      )}
     </div>
   );
 }
@@ -299,4 +444,13 @@ function setPath(obj: Record<string, any>, path: string, value: unknown): Record
   }
   cur[keys[keys.length - 1]] = value;
   return obj;
+}
+
+function getPath(obj: Record<string, any>, path: string): unknown {
+  let cur: any = obj;
+  for (const k of path.split('.')) {
+    if (cur === null || cur === undefined) return undefined;
+    cur = cur[k];
+  }
+  return cur;
 }

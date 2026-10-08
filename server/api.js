@@ -456,6 +456,7 @@ function parseCharacter(c) {
     kind: c.kind,
     data: safeJson(c.data),
     portraitUrl: c.portrait_url,
+    templateId: c.template_id || null,
     createdAt: c.created_at,
     updatedAt: c.updated_at,
   };
@@ -468,18 +469,174 @@ function safeJson(s) {
   }
 }
 
-router.post('/campaigns/:id/characters', auth, (req, res) => {
+/* ------------------------------------------------------------------ *
+ * Sheet templates
+ *
+ * A template is just a list of fields plus an optional attribute block, so a
+ * GM can describe a sheet for any game system without touching the code. The
+ * built-in D&D layout lives in the client and is used when a character has no
+ * templateId, so existing characters keep working untouched.
+ * ------------------------------------------------------------------ */
+
+const FIELD_TYPES = new Set(['text', 'number', 'textarea']);
+const MAX_FIELDS = 40;
+const KEY_RE = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$/;
+
+/** Validate and normalize a template schema coming from the client. */
+function normalizeTemplateSchema(raw) {
+  const schema = raw && typeof raw === 'object' ? raw : {};
+  const fields = Array.isArray(schema.fields) ? schema.fields.slice(0, MAX_FIELDS) : [];
+  const seen = new Set();
+  const clean = [];
+  for (const f of fields) {
+    if (!f || typeof f !== 'object') continue;
+    const key = String(f.key || '').trim();
+    const label = String(f.label || '').trim().slice(0, 60);
+    const type = String(f.type || 'text');
+    if (!KEY_RE.test(key) || !label) continue;
+    if (seen.has(key)) continue; // duplicate keys would fight over the same value
+    seen.add(key);
+    clean.push({
+      key,
+      label,
+      type: FIELD_TYPES.has(type) ? type : 'text',
+      width: f.width === 'tight' ? 'tight' : undefined,
+    });
+  }
+  const attributes = Array.isArray(schema.attributes)
+    ? [...new Set(schema.attributes.map((a) => String(a).trim().toUpperCase()).filter((a) => KEY_RE.test(a)))].slice(0, 12)
+    : [];
+  return { fields: clean, attributes };
+}
+
+/** Blank data object matching a schema, so every field has something to show. */
+function seedDataFromSchema(schema) {
+  const out = {};
+  for (const f of schema.fields || []) {
+    const value = f.type === 'number' ? 0 : '';
+    if (f.key.includes('.')) {
+      const [head, ...rest] = f.key.split('.');
+      const leaf = rest.pop();
+      let cur = out;
+      cur[head] = cur[head] && typeof cur[head] === 'object' ? cur[head] : {};
+      cur = cur[head];
+      for (const part of rest) {
+        cur[part] = cur[part] && typeof cur[part] === 'object' ? cur[part] : {};
+        cur = cur[part];
+      }
+      cur[leaf] = value;
+    } else {
+      out[f.key] = value;
+    }
+  }
+  if ((schema.attributes || []).length) out.attributes = {};
+  return out;
+}
+
+function parseTemplate(t) {
+  return {
+    id: t.id,
+    campaignId: t.campaign_id,
+    name: t.name,
+    schema: safeJson(t.schema),
+    createdAt: t.created_at,
+    updatedAt: t.updated_at,
+  };
+}
+
+router.get('/campaigns/:id/templates', auth, (req, res) => {
   const { role } = campaignRole(req.params.id, req.user.id);
   if (!role) return res.status(404).json({ error: 'Not found' });
-  const { name, kind, data, portraitUrl } = body(req);
-  if (!name) return res.status(400).json({ error: 'name is required' });
+  const rows = db
+    .prepare('SELECT * FROM sheet_templates WHERE campaign_id = ? ORDER BY name COLLATE NOCASE')
+    .all(req.params.id);
+  res.json({ templates: rows.map(parseTemplate) });
+});
+
+router.post('/campaigns/:id/templates', auth, (req, res) => {
+  const { role } = campaignRole(req.params.id, req.user.id);
+  if (!role) return res.status(404).json({ error: 'Not found' });
+  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  const name = String(body(req).name || '').trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  const schema = normalizeTemplateSchema(body(req).schema);
   const id = nanoid(12);
   const t = now();
   db.prepare(
-    `INSERT INTO characters (id, campaign_id, owner_id, name, kind, data, portrait_url, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, req.params.id, req.user.id, name, kind || 'pc', JSON.stringify(data || {}), portraitUrl || null, t, t);
-  res.status(201).json({ id });
+    `INSERT INTO sheet_templates (id, campaign_id, name, schema, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, req.params.id, name, JSON.stringify(schema), t, t);
+  res.status(201).json({ template: { id, campaignId: req.params.id, name, schema, createdAt: t, updatedAt: t } });
+});
+
+router.patch('/templates/:id', auth, (req, res) => {
+  const t = db.prepare('SELECT * FROM sheet_templates WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const { role } = campaignRole(t.campaign_id, req.user.id);
+  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  const patch = body(req);
+  const name = patch.name === undefined ? t.name : String(patch.name).trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  const schema =
+    patch.schema === undefined ? safeJson(t.schema) : normalizeTemplateSchema(patch.schema);
+  db.prepare('UPDATE sheet_templates SET name = ?, schema = ?, updated_at = ? WHERE id = ?').run(
+    name,
+    JSON.stringify(schema),
+    now(),
+    req.params.id,
+  );
+  res.json({ ok: true });
+});
+
+router.delete('/templates/:id', auth, (req, res) => {
+  const t = db.prepare('SELECT * FROM sheet_templates WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const { role } = campaignRole(t.campaign_id, req.user.id);
+  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  // Characters fall back to the built-in sheet; their stored data is kept.
+  db.prepare('UPDATE characters SET template_id = NULL WHERE template_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM sheet_templates WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+router.post('/campaigns/:id/characters', auth, (req, res) => {
+  const { role } = campaignRole(req.params.id, req.user.id);
+  if (!role) return res.status(404).json({ error: 'Not found' });
+  const { name, kind, data, portraitUrl, templateId } = body(req);
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  // A character created from a template starts with that template's fields
+  // already present, so the sheet renders instead of showing blanks.
+  let resolvedTemplateId = null;
+  let sheetData = data && typeof data === 'object' ? data : {};
+  if (templateId) {
+    const tpl = db
+      .prepare('SELECT * FROM sheet_templates WHERE id = ? AND campaign_id = ?')
+      .get(templateId, req.params.id);
+    if (tpl) {
+      resolvedTemplateId = tpl.id;
+      sheetData = { ...seedDataFromSchema(safeJson(tpl.schema)), ...sheetData };
+    }
+  }
+
+  const id = nanoid(12);
+  const t = now();
+  db.prepare(
+    `INSERT INTO characters (id, campaign_id, owner_id, name, kind, data, portrait_url, template_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    req.params.id,
+    req.user.id,
+    name,
+    kind || 'pc',
+    JSON.stringify(sheetData),
+    portraitUrl || null,
+    resolvedTemplateId,
+    t,
+    t,
+  );
+  res.status(201).json({ id, templateId: resolvedTemplateId });
 });
 
 router.get('/characters/:id', auth, (req, res) => {
@@ -495,7 +652,8 @@ router.patch('/characters/:id', auth, (req, res) => {
   if (!c) return res.status(404).json({ error: 'Not found' });
   const { role } = c.campaign_id ? campaignRole(c.campaign_id, req.user.id) : { role: null };
   if (c.owner_id !== req.user.id && !canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
-  const { name, kind, data, portraitUrl } = body(req);
+  const patch = body(req);
+  const { name, kind, data, portraitUrl } = patch;
   db.prepare(
     `UPDATE characters SET name = COALESCE(?, name), kind = COALESCE(?, kind),
        data = COALESCE(?, data), portrait_url = COALESCE(?, portrait_url), updated_at = ?
@@ -508,6 +666,28 @@ router.patch('/characters/:id', auth, (req, res) => {
     now(),
     req.params.id,
   );
+
+  // Switching template keeps the values already entered and backfills whatever
+  // the new template adds, so nothing typed is thrown away. `templateId: null`
+  // is meaningful here (back to the built-in sheet), so it is not COALESCE'd.
+  if ('templateId' in patch) {
+    let nextId = null;
+    let seed = {};
+    if (patch.templateId) {
+      const tpl = db.prepare('SELECT * FROM sheet_templates WHERE id = ?').get(patch.templateId);
+      if (tpl) {
+        nextId = tpl.id;
+        seed = seedDataFromSchema(safeJson(tpl.schema));
+      }
+    }
+    // Re-read: the UPDATE above may already have changed the data column.
+    const fresh = db.prepare('SELECT data FROM characters WHERE id = ?').get(req.params.id);
+    db.prepare('UPDATE characters SET template_id = ?, data = ? WHERE id = ?').run(
+      nextId,
+      JSON.stringify({ ...seed, ...safeJson(fresh?.data) }),
+      req.params.id,
+    );
+  }
   res.json({ ok: true });
 });
 

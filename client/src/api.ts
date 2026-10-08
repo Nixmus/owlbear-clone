@@ -135,6 +135,27 @@ export interface CampaignDetail {
   }>;
 }
 
+export interface SheetField {
+  key: string; // may be a dotted path, e.g. hp.current
+  label: string;
+  type: 'text' | 'number' | 'textarea';
+  width?: 'tight';
+}
+
+export interface SheetSchema {
+  fields: SheetField[];
+  attributes: string[]; // e.g. ['STR','DEX',...]; empty means no attribute block
+}
+
+export interface SheetTemplate {
+  id: string;
+  campaignId: string;
+  name: string;
+  schema: SheetSchema;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Character {
   id: string;
   campaignId: string | null;
@@ -143,6 +164,7 @@ export interface Character {
   kind: 'pc' | 'npc' | 'monster';
   data: Record<string, unknown>;
   portraitUrl: string | null;
+  templateId: string | null; // null = built-in sheet
   createdAt: number;
   updatedAt: number;
 }
