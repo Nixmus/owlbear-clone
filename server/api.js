@@ -76,6 +76,15 @@ function normVisibility(v) {
   return v === 'private' ? 'private' : 'public';
 }
 
+/**
+ * Anyone in the campaign may create folders, but a player may only change or
+ * delete their own. The GM keeps full control, as with the other campaign
+ * resources.
+ */
+function canManageFolder(folder, role, userId) {
+  return canEdit(role) || folder.owner_id === userId;
+}
+
 /* ------------------------------------------------------------------ *
  * Auth / profile
  * ------------------------------------------------------------------ */
@@ -837,7 +846,6 @@ router.get('/campaigns/:id/folders', auth, (req, res) => {
 router.post('/campaigns/:id/folders', auth, (req, res) => {
   const { role } = campaignRole(req.params.id, req.user.id);
   if (!role) return res.status(404).json({ error: 'Not found' });
-  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
   const name = cleanFolderName(body(req).name);
   if (!name) return res.status(400).json({ error: 'Nombre de carpeta no válido' });
   const visibility = normVisibility(body(req).visibility);
@@ -863,7 +871,9 @@ router.patch('/folders/:id', auth, (req, res) => {
   if (!f) return res.status(404).json({ error: 'Not found' });
   if (!canSee(f, req.user.id)) return res.status(404).json({ error: 'Not found' });
   const { role } = campaignRole(f.campaign_id, req.user.id);
-  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canManageFolder(f, role, req.user.id)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const patch = body(req);
   const name = cleanFolderName(patch.name);
   if (!name) return res.status(400).json({ error: 'Nombre de carpeta no válido' });
@@ -897,7 +907,9 @@ router.delete('/folders/:id', auth, (req, res) => {
   if (!f) return res.status(404).json({ error: 'Not found' });
   if (!canSee(f, req.user.id)) return res.status(404).json({ error: 'Not found' });
   const { role } = campaignRole(f.campaign_id, req.user.id);
-  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canManageFolder(f, role, req.user.id)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   // Like a file manager: deleting a folder moves its contents to the root
   // instead of destroying the assets.
   db.prepare('UPDATE assets SET folder = ? WHERE campaign_id = ? AND folder = ?').run(

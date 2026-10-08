@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, assetUrl, downloadAssetZip, type Asset, type AssetFolder, type Visibility } from '../../api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  api,
+  assetUrl,
+  downloadAssetZip,
+  type Asset,
+  type AssetFolder,
+  type Visibility,
+} from '../../api';
+import { useAuth } from '../../auth';
 import Icon from '../Icon';
 import SearchField from '../SearchField';
 import VisibilityToggle from '../VisibilityToggle';
@@ -20,6 +28,7 @@ function formatDate(ts: number): string {
 }
 
 export default function AssetManager({ campaignId }: { campaignId: string }) {
+  const user = useAuth((s) => s.user);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [folders, setFolders] = useState<AssetFolder[]>([]);
   const [cwd, setCwd] = useState(''); // '' = root (sin carpeta)
@@ -137,6 +146,12 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [folders, assets]);
 
+  /** Mirrors canManageFolder on the server: GM, or the folder's own creator. */
+  const canManage = useCallback(
+    (folder: AssetFolder | undefined) => !!folder && (canEdit || folder.ownerId === user?.id),
+    [canEdit, user?.id],
+  );
+
   async function ensureFolder(name: string): Promise<string> {
     const existing = folders.find((f) => f.name === name);
     if (existing) return existing.id;
@@ -145,9 +160,20 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     return r.folder.id;
   }
 
-  /** Flip a folder's visibility; only its owner is allowed to. */
+  function manageError(): string | null {
+    return canEdit ? null : 'Solo puedes gestionar las carpetas que creaste tú.';
+  }
+
+  /**
+   * Flip a folder's visibility. The server only accepts this from the folder's
+   * creator, so the toggle is hidden for a GM acting on someone else's folder.
+   */
   async function setFolderVisibility(folder: AssetFolder, next: Visibility) {
     setError('');
+    if (folder.ownerId !== user?.id) {
+      setError('Solo quien creó la carpeta puede cambiar su visibilidad.');
+      return;
+    }
     try {
       await api.patch(`/folders/${folder.id}`, { visibility: next });
       setFolders((prev) => prev.map((f) => (f.id === folder.id ? { ...f, visibility: next } : f)));
@@ -202,6 +228,11 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     setRenaming(null);
     if (!name || name === from) return;
     setError('');
+    const folder = folders.find((f) => f.name === from);
+    if (!canManage(folder)) {
+      setError(manageError());
+      return;
+    }
     try {
       const id = await ensureFolder(from);
       await api.patch(`/folders/${id}`, { name });
@@ -213,6 +244,11 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
   }
 
   async function deleteFolder(name: string) {
+    const folder = folders.find((f) => f.name === name);
+    if (!canManage(folder)) {
+      setError(manageError());
+      return;
+    }
     if (!confirm(`¿Eliminar la carpeta “${name}”? Sus archivos se moverán a la raíz.`)) return;
     setError('');
     try {
@@ -405,6 +441,7 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
           {folderNames.map((f) => {
             const folder = folders.find((x) => x.name === f);
             const isPrivate = folder?.visibility === 'private';
+            const mine = canManage(folder);
             return renaming === f ? (
               <input
                 key={f}
@@ -425,14 +462,14 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
                   <span className="fm-side-name">{f}</span>
                   <em>{assets.filter((a) => a.folder === f).length}</em>
                 </button>
-                {folder && (
+                {folder && folder.ownerId === user?.id && (
                   <VisibilityToggle
                     value={folder.visibility || 'public'}
                     onChange={(next) => setFolderVisibility(folder, next)}
                     label={`Visibilidad de la carpeta ${f}`}
                   />
                 )}
-                {canEdit && (
+                {mine && (
                   <span className="fm-side-tools">
                     <button
                       className="icon-btn"
@@ -453,36 +490,35 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             );
           })}
 
-          {canEdit &&
-            (creating ? (
-              <div className="fm-newfolder">
-                <input
-                  className="fm-side-input"
-                  placeholder="Nombre de la carpeta"
-                  value={newName}
-                  autoFocus
-                  onChange={(e) => setNewName(e.target.value)}
-                  onBlur={createFolder}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') createFolder();
-                    if (e.key === 'Escape') {
-                      setCreating(false);
-                      setNewName('');
-                      setNewFolderPrivate(false);
-                    }
-                  }}
-                />
-                <VisibilityToggle
-                  value={newFolderPrivate ? 'private' : 'public'}
-                  onChange={(next) => setNewFolderPrivate(next === 'private')}
-                  label="Visibilidad de la nueva carpeta"
-                />
-              </div>
-            ) : (
-              <button className="fm-side-new" onClick={() => setCreating(true)}>
-                <Icon name="plus" size={14} /> Nueva carpeta
-              </button>
-            ))}
+          {creating ? (
+            <div className="fm-newfolder">
+              <input
+                className="fm-side-input"
+                placeholder="Nombre de la carpeta"
+                value={newName}
+                autoFocus
+                onChange={(e) => setNewName(e.target.value)}
+                onBlur={createFolder}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createFolder();
+                  if (e.key === 'Escape') {
+                    setCreating(false);
+                    setNewName('');
+                    setNewFolderPrivate(false);
+                  }
+                }}
+              />
+              <VisibilityToggle
+                value={newFolderPrivate ? 'private' : 'public'}
+                onChange={(next) => setNewFolderPrivate(next === 'private')}
+                label="Visibilidad de la nueva carpeta"
+              />
+            </div>
+          ) : (
+            <button className="fm-side-new" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={14} /> Nueva carpeta
+            </button>
+          )}
         </aside>
 
         <div
