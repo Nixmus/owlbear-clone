@@ -802,13 +802,6 @@ textarea {
   color: var(--text);
   border-color: var(--border);
 }
-.hub-sidebar-foot {
-  margin-top: auto;
-}
-.hub-sidebar-foot .btn {
-  width: 100%;
-  justify-content: center;
-}
 
 .hub-main {
   overflow-y: auto;
@@ -1667,13 +1660,6 @@ textarea {
     flex-direction: row;
   }
   .hub-nav-item {
-    white-space: nowrap;
-  }
-  .hub-sidebar-foot {
-    margin-top: 0;
-  }
-  .hub-sidebar-foot .btn {
-    width: auto;
     white-space: nowrap;
   }
 }

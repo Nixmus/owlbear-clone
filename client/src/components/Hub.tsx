@@ -244,11 +244,6 @@ function HubShell({ onOpen }: { onOpen: (id: string) => void }) {
             </button>
           ))}
         </nav>
-        <div className="hub-sidebar-foot">
-          <a className="btn primary" href={`/?room=pickup`}>
-            <Icon name="dice" size={14} /> Partida rápida
-          </a>
-        </div>
       </aside>
 
       <main className="hub-main">
