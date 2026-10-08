@@ -107,9 +107,25 @@ export interface GameLogEntry {
   text: string;
 }
 
+/**
+ * An image placed over the map, like a sticker or prop. Sized freely in world
+ * units so it stays put while the board is panned and zoomed.
+ */
+export interface Decal {
+  id: string;
+  sceneId: string;
+  url: string;
+  x: number; // top-left, world units
+  y: number;
+  w: number;
+  h: number;
+  opacity?: number; // 0..1, defaults to 1
+}
+
 export interface RoomState {
   id: string;
   tokens: Token[];
+  decals: Decal[];
   drawings: Drawing[];
   erasers: EraseStroke[];
   fog: FogShape[];
@@ -128,6 +144,9 @@ export type Action =
   | { kind: 'token.add'; token: Token }
   | { kind: 'token.update'; id: string; patch: Partial<Token> }
   | { kind: 'token.remove'; id: string }
+  | { kind: 'decal.add'; decal: Decal }
+  | { kind: 'decal.update'; id: string; patch: Partial<Decal> }
+  | { kind: 'decal.remove'; id: string }
   | { kind: 'drawing.add'; drawing: Drawing }
   | { kind: 'drawing.update'; id: string; patch: Partial<Drawing> }
   | { kind: 'drawing.remove'; id: string }
@@ -157,6 +176,7 @@ export type Tool =
   | 'rect'
   | 'circle'
   | 'eraser'
+  | 'decal'
   | 'ping';
 
 export interface Viewport {

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import Icon from './Icon';
 import { can, type Role } from '../permissions';
-import type { Drawing, EraseStroke, FogShape, Token, Tool } from '../types';
+import type { Decal, Drawing, EraseStroke, FogShape, Token, Tool } from '../types';
 import { useViewport } from '../hooks/useViewport';
 import { clamp, nanoid } from '../util';
 import type { Vec } from '../util';
@@ -18,6 +18,12 @@ interface Props {
   brushSize: number;
   gmFogTransparent: boolean;
   fogOpacity: number;
+  /** Image picked for the decal tool; null means nothing to place yet. */
+  decalImage: { url: string; w: number; h: number } | null;
+  decalSize: number;
+  decalOpacity: number;
+  fogLighting: boolean;
+  fogLightRadius: number;
   fillEnabled: boolean;
   fillColor: string;
   fillOpacity: number;
@@ -27,6 +33,16 @@ type Drag =
   | { type: 'pan'; startX: number; startY: number; vx: number; vy: number }
   | { type: 'token'; id: string; offsetX: number; offsetY: number; moved: boolean }
   | { type: 'resize'; id: string; startSize: number; startX: number; startY: number }
+  | { type: 'decal-move'; id: string; offX: number; offY: number }
+  | {
+      type: 'decal-resize';
+      id: string;
+      startW: number;
+      startH: number;
+      startX: number;
+      startY: number;
+      ratio: number;
+    }
   | { type: 'draw'; points: number[] }
   | { type: 'fog'; mode: 'reveal' | 'hide'; stamps: number[]; last: Vec }
   | {
@@ -49,6 +65,11 @@ export default function Board({
   brushSize,
   gmFogTransparent,
   fogOpacity,
+  decalImage,
+  decalSize,
+  decalOpacity,
+  fogLighting,
+  fogLightRadius,
   fillEnabled,
   fillColor,
   fillOpacity,
@@ -85,6 +106,7 @@ export default function Board({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [selectedDecalId, setSelectedDecalId] = useState<string | null>(null);
 
   // notify the app (Inspector) about the current selection
   useEffect(() => {
@@ -114,10 +136,29 @@ export default function Board({
     () => state.drawings.filter((d) => d.sceneId === scene?.id),
     [state.drawings, scene?.id],
   );
+  const sceneDecals = useMemo(
+    () => (state.decals || []).filter((d) => d.sceneId === scene?.id),
+    [state.decals, scene?.id],
+  );
+  const selectedDecal = sceneDecals.find((d) => d.id === selectedDecalId) || null;
+
   const sceneErasers = useMemo(
     () => (state.erasers || []).filter((e) => e.sceneId === scene?.id),
     [state.erasers, scene?.id],
   );
+
+  // Lighting mode: one light per token, centred on it and at least as big as
+  // the token itself so a character never stands in pitch dark.
+  const lights = useMemo(() => {
+    if (!fogLighting) return [];
+    return sceneTokens
+      .filter((t) => !t.hidden)
+      .map((t) => ({
+        x: t.x + (t.size * scene!.gridSize) / 2,
+        y: t.y + (t.size * scene!.gridSize) / 2,
+        r: Math.max(fogLightRadius, t.size * scene!.gridSize),
+      }));
+  }, [fogLighting, sceneTokens, scene?.gridSize, fogLightRadius]);
 
   // Erasers that hide a given stroke: only those created after it, and only
   // when their bounding boxes actually overlap. The cheap box test keeps this
@@ -225,9 +266,14 @@ export default function Board({
         if (can(role, 'draw')) dispatch({ kind: 'drawing.remove', id: selectedDrawingId });
         setSelectedDrawingId(null);
       }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDecalId) {
+        if (can(role, 'scene.manage')) dispatch({ kind: 'decal.remove', id: selectedDecalId });
+        setSelectedDecalId(null);
+      }
       if (e.key === 'Escape') {
         setSelectedId(null);
         setSelectedDrawingId(null);
+        setSelectedDecalId(null);
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -239,7 +285,7 @@ export default function Board({
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, [selectedId, selectedDrawingId, state.tokens, dispatch, role, self.id]);
+  }, [selectedId, selectedDrawingId, selectedDecalId, state.tokens, dispatch, role, self.id]);
 
   /* ---------------- pointer ---------------- */
   const panning = tool === 'pan' || spaceDown;
@@ -308,6 +354,26 @@ export default function Board({
         setDrag({ type: 'draw', points: [w.x, w.y, w.x, w.y] });
         setDraftPoints([w.x, w.y, w.x, w.y]);
         break;
+      case 'decal': {
+        if (!can(role, 'scene.manage')) break;
+        if (!decalImage) break;
+        // Place centred on the click, keeping the image's aspect ratio.
+        const w = Math.max(8, decalSize);
+        const h = w * (decalImage.h / Math.max(1, decalImage.w));
+        const decal: Decal = {
+          id: nanoid(),
+          sceneId: scene.id,
+          url: decalImage.url,
+          x: w.x - w / 2,
+          y: w.y - h / 2,
+          w,
+          h,
+          opacity: decalOpacity,
+        };
+        dispatch({ kind: 'decal.add', decal });
+        setSelectedDecalId(decal.id);
+        break;
+      }
       case 'eraser': {
         if (!can(role, 'draw')) break;
         // The eraser paints an "erase stroke" (see the mask below) rather than
@@ -378,6 +444,30 @@ export default function Board({
       case 'resize': {
         const size = clamp(drag.startSize + (w.x - drag.startX) / scene.gridSize, 0.25, 20);
         dispatch({ kind: 'token.update', id: drag.id, patch: { size } });
+        break;
+      }
+      case 'decal-move': {
+        dispatch({
+          kind: 'decal.update',
+          id: drag.id,
+          patch: { x: w.x - drag.offX, y: w.y - drag.offY },
+        });
+        break;
+      }
+      case 'decal-resize': {
+        const dx = w.x - drag.startX;
+        const dy = w.y - drag.startY;
+        // Distance along the drag direction, projected on the diagonal, keeps
+        // the image proportional no matter which way the handle is pulled.
+        const along = dx + dy;
+        const factor = Math.max(0.05, 1 + along / (drag.startW || 1));
+        const ratio = drag.ratio;
+        const nw = clamp(drag.startW * factor, 8, 20000);
+        dispatch({
+          kind: 'decal.update',
+          id: drag.id,
+          patch: { w: nw, h: clamp(nw * ratio, 8, 20000) },
+        });
         break;
       }
       case 'draw': {
@@ -556,6 +646,26 @@ export default function Board({
     [panning, tool, isGM, self.id, role],
   );
 
+  const onDecalPointerDown = useCallback(
+    (e: React.PointerEvent, decal: Decal) => {
+      if (panning || tool !== 'select') return;
+      e.stopPropagation();
+      if (!can(role, 'scene.manage')) return;
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      setSelectedDecalId(decal.id);
+      setSelectedId(null);
+      setSelectedDrawingId(null);
+      const w = worldAt(e);
+      setDrag({
+        type: 'decal-move',
+        id: decal.id,
+        offX: w.x - decal.x,
+        offY: w.y - decal.y,
+      });
+    },
+    [panning, tool, role],
+  );
+
   /* ---------------- helpers ---------------- */
 
   /* ---------------- grid ---------------- */
@@ -713,6 +823,25 @@ export default function Board({
           )}
         </svg>
 
+        {/* Decals: images laid over the map, behind the tokens. */}
+        {sceneDecals.map((d) => (
+          <div
+            key={d.id}
+            className={`decal ${selectedDecalId === d.id ? 'selected' : ''}`}
+            style={{
+              left: d.x,
+              top: d.y,
+              width: d.w,
+              height: d.h,
+              opacity: d.opacity ?? 1,
+            }}
+            onPointerDown={(e) => onDecalPointerDown(e, d)}
+            title="Imagen del mapa"
+          >
+            <img src={d.url} alt="" draggable={false} />
+          </div>
+        ))}
+
         {/* Tokens */}
         {sceneTokens.map((t) => (
           <TokenView
@@ -735,8 +864,36 @@ export default function Board({
             draftRadius={brushSize}
             draftShape={draftShape}
             draftOpacity={fogOpacity}
+            lights={lights}
+            lightOn={fogLighting}
             fogOccludes={fogOccludes}
             seeThrough={isGM && gmFogTransparent}
+          />
+        )}
+
+        {/* Decal resize handle */}
+        {selectedDecal && (
+          <div
+            className="resize-handle"
+            style={{
+              left: selectedDecal.x + selectedDecal.w + 2,
+              top: selectedDecal.y + selectedDecal.h + 2,
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              if (!can(role, 'scene.manage')) return;
+              const w = worldAt(e);
+              (e.target as Element).setPointerCapture?.(e.pointerId);
+              setDrag({
+                type: 'decal-resize',
+                id: selectedDecal.id,
+                startW: selectedDecal.w,
+                startH: selectedDecal.h,
+                startX: w.x,
+                startY: w.y,
+                ratio: selectedDecal.h / Math.max(1, selectedDecal.w),
+              });
+            }}
           />
         )}
 
@@ -1069,6 +1226,8 @@ function FogLayer({
   draftRadius: draftRadiusProp,
   draftShape,
   draftOpacity,
+  lights,
+  lightOn,
   fogOccludes,
   seeThrough,
 }: {
@@ -1078,6 +1237,12 @@ function FogLayer({
   draftRadius: number;
   draftShape: { mode: 'reveal' | 'hide'; round: boolean; a: Vec; b: Vec } | null;
   draftOpacity: number;
+  /**
+   * Lighting mode: punches the fog open around each token so players can only
+   * see what their character lights up. Positions are in world units.
+   */
+  lights: { x: number; y: number; r: number }[];
+  lightOn: boolean;
   fogOccludes: boolean;
   seeThrough?: boolean;
 }) {
@@ -1137,6 +1302,13 @@ function FogLayer({
             }
             return circles;
           })()}
+          {/* Lighting: reveal the fog around each token so players only see what
+              their character lights up. Drawn as black in the mask, same as
+              a reveal stroke. */}
+          {lightOn &&
+            lights.map((l, i) => (
+              <circle key={`light-${i}`} cx={l.x} cy={l.y} r={l.r} fill="black" />
+            ))}
           {(() => {
             if (!draftShape) return null;
             const x = Math.min(draftShape.a.x, draftShape.b.x);

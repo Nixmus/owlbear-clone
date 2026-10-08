@@ -86,6 +86,7 @@ function emptyState(roomId: string): RoomState {
   return {
     id: roomId,
     tokens: [],
+    decals: [],
     drawings: [],
     erasers: [],
     fog: [],
@@ -134,6 +135,19 @@ export function reduce(state: RoomState, action: Action): RoomState {
       };
     case 'token.remove':
       return { ...state, tokens: state.tokens.filter((t) => t.id !== action.id) };
+    case 'decal.add':
+      return (state.decals || []).some((d) => d.id === action.decal.id)
+        ? state
+        : { ...state, decals: [...(state.decals || []), action.decal] };
+    case 'decal.update':
+      return {
+        ...state,
+        decals: (state.decals || []).map((d) =>
+          d.id === action.id ? { ...d, ...action.patch } : d,
+        ),
+      };
+    case 'decal.remove':
+      return { ...state, decals: (state.decals || []).filter((d) => d.id !== action.id) };
     case 'drawing.add': {
       if (state.drawings.some((d) => d.id === action.drawing.id)) return state;
       const seq = nextSeq(action.drawing.seq);

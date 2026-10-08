@@ -96,6 +96,12 @@ function Table() {
   const [fogOccludes, setFogOccludes] = useState(true);
   const [gmFogTransparent, setGmFogTransparent] = useState(false);
   const [fogOpacity, setFogOpacity] = useState(1);
+  const [fogLighting, setFogLighting] = useState(false);
+  const [fogLightRadius, setFogLightRadius] = useState(240);
+  // Decal (map image) tool state: which image to place and how big.
+  const [decalImage, setDecalImage] = useState<{ url: string; w: number; h: number } | null>(null);
+  const [decalSize, setDecalSize] = useState(180);
+  const [decalOpacity, setDecalOpacity] = useState(1);
   // The side column shows one panel at a time; they stay mounted so unsaved
   // edits and scroll positions survive switching.
   const [sideTab, setSideTab] = useState<'scene' | 'token' | 'chat' | 'history'>('chat');
@@ -288,6 +294,11 @@ function Table() {
         brushSize={brushSize}
         gmFogTransparent={gmFogTransparent}
         fogOpacity={fogOpacity}
+        fogLighting={fogLighting}
+        fogLightRadius={fogLightRadius}
+        decalImage={decalImage}
+        decalSize={decalSize}
+        decalOpacity={decalOpacity}
         fillEnabled={fillEnabled}
         fillColor={fillColor}
         fillOpacity={fillOpacity}
@@ -338,6 +349,16 @@ function Table() {
               setGmFogTransparent={setGmFogTransparent}
               fogOpacity={fogOpacity}
               setFogOpacity={setFogOpacity}
+              fogLighting={fogLighting}
+              setFogLighting={setFogLighting}
+              fogLightRadius={fogLightRadius}
+              setFogLightRadius={setFogLightRadius}
+              decalImage={decalImage}
+              setDecalImage={setDecalImage}
+              decalSize={decalSize}
+              setDecalSize={setDecalSize}
+              decalOpacity={decalOpacity}
+              setDecalOpacity={setDecalOpacity}
               fillEnabled={fillEnabled}
               setFillEnabled={setFillEnabled}
               fillColor={fillColor}

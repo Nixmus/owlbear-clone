@@ -256,6 +256,50 @@ textarea {
   background: #000a;
 }
 
+/* ---------- map decals (images pasted over the map) ---------- */
+.decal {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+}
+.decal img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  pointer-events: none;
+}
+.decal.selected {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.decal-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 5px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.decal-chip {
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 7px;
+  background: var(--panel-3);
+  overflow: hidden;
+  aspect-ratio: 1;
+  display: block;
+}
+.decal-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.decal-chip.active {
+  border-color: var(--accent);
+}
+
 /* The side column shows one panel at a time. Panels stay mounted so unsaved
    edits and scroll positions survive switching tabs. */
 .side-tabs {

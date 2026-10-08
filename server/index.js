@@ -37,6 +37,7 @@ function emptyRoom(id) {
   return {
     id,
     tokens: [],
+    decals: [],
     drawings: [],
     erasers: [],
     fog: [],
@@ -61,6 +62,8 @@ function loadRoom(roomId) {
       Object.assign(room, parsed);
       // Rooms persisted before the eraser existed have no `erasers` key.
       if (!Array.isArray(room.erasers)) room.erasers = [];
+      // Same for decals, which were added later than the rest.
+      if (!Array.isArray(room.decals)) room.decals = [];
       if (!Array.isArray(room.scenes) || room.scenes.length === 0) {
         const scene = emptyScene();
         room.scenes = [scene];
@@ -156,6 +159,7 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
       state.scenes = state.scenes.filter((s) => s.id !== action.id);
       if (state.activeSceneId === action.id) state.activeSceneId = state.scenes[0].id;
       state.tokens = state.tokens.filter((t) => t.sceneId !== action.id);
+      state.decals = (state.decals || []).filter((d) => d.sceneId !== action.id);
       state.drawings = state.drawings.filter((d) => d.sceneId !== action.id);
       state.erasers = (state.erasers || []).filter((e) => e.sceneId !== action.id);
       state.fog = state.fog.filter((f) => f.sceneId !== action.id);
@@ -190,6 +194,48 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
     }
     case 'token.remove':
       state.tokens = state.tokens.filter((t) => t.id !== action.id);
+      return true;
+    case 'decal.add': {
+      if (!isGM) return false;
+      const d = action.decal;
+      if (!d || !d.id || typeof d.url !== 'string' || !d.url.startsWith('/uploads/')) {
+        return false;
+      }
+      if (!state.decals) state.decals = [];
+      if (state.decals.some((x) => x.id === d.id)) return false;
+      const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+      // Sizes are clamped so a malicious client cannot create invisible or
+      // map-sized decals.
+      state.decals.push({
+        id: d.id,
+        sceneId: d.sceneId,
+        url: d.url,
+        x: num(d.x, 0),
+        y: num(d.y, 0),
+        w: Math.min(20000, Math.max(1, num(d.w, 200))),
+        h: Math.min(20000, Math.max(1, num(d.h, 200))),
+        opacity: Math.min(1, Math.max(0, num(d.opacity, 1))),
+      });
+      return true;
+    }
+    case 'decal.update': {
+      if (!isGM) return false;
+      const d = (state.decals || []).find((x) => x.id === action.id);
+      if (!d) return false;
+      const p = action.patch || {};
+      const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
+      if ('x' in p && num(p.x) !== undefined) d.x = num(p.x);
+      if ('y' in p && num(p.y) !== undefined) d.y = num(p.y);
+      if ('w' in p && num(p.w) !== undefined) d.w = Math.min(20000, Math.max(1, num(p.w)));
+      if ('h' in p && num(p.h) !== undefined) d.h = Math.min(20000, Math.max(1, num(p.h)));
+      if ('opacity' in p && num(p.opacity) !== undefined) {
+        d.opacity = Math.min(1, Math.max(0, num(p.opacity)));
+      }
+      return true;
+    }
+    case 'decal.remove':
+      if (!isGM) return false;
+      state.decals = (state.decals || []).filter((d) => d.id !== action.id);
       return true;
     case 'drawing.add': {
       if (!action.drawing?.id) return false;

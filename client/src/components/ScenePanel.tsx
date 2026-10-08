@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { nanoid } from '../util';
 import Icon from './Icon';
+import { api, assetUrl, type Asset } from '../api';
 import { can, type Role } from '../permissions';
 import type { Scene } from '../types';
 
@@ -28,6 +29,16 @@ interface Props {
   setGmFogTransparent: (b: boolean) => void;
   fogOpacity: number;
   setFogOpacity: (n: number) => void;
+  fogLighting: boolean;
+  setFogLighting: (b: boolean) => void;
+  fogLightRadius: number;
+  setFogLightRadius: (n: number) => void;
+  decalImage: { url: string; w: number; h: number } | null;
+  setDecalImage: (v: { url: string; w: number; h: number } | null) => void;
+  decalSize: number;
+  setDecalSize: (n: number) => void;
+  decalOpacity: number;
+  setDecalOpacity: (n: number) => void;
   fillEnabled: boolean;
   setFillEnabled: (b: boolean) => void;
   fillColor: string;
@@ -38,6 +49,7 @@ interface Props {
 
 export default function ScenePanel(props: Props) {
   const state = useStore((s) => s.state);
+  const roomId = useStore((s) => s.roomId);
   const dispatch = useStore((s) => s.dispatch);
   const previewSceneId = useStore((s) => s.previewSceneId);
   const setPreviewScene = useStore((s) => s.setPreviewScene);
@@ -45,6 +57,21 @@ export default function ScenePanel(props: Props) {
   const [collapsed, setCollapsed] = useState(false);
 
   const scene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
+  // Entering from a campaign uses the campaign id as the room id, which is how
+  // the board links are built (`/?room=<campaignId>`). Casual rooms have no
+  // assets to draw from, so the picker simply stays empty.
+  const campaignId = roomId;
+  const [images, setImages] = useState<Asset[]>([]);
+
+  // Images available to paste onto the map.
+  useEffect(() => {
+    if (!campaignId) return;
+    api
+      .get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`)
+      .then((d) => setImages(d.assets.filter((a) => a.mime.startsWith('image/'))))
+      .catch(() => setImages([]));
+  }, [campaignId]);
+
   if (!scene) return null;
   const canManage = can(props.role, 'scene.manage');
 
@@ -311,6 +338,89 @@ export default function ScenePanel(props: Props) {
                 />
                 Niebla totalmente opaca
               </label>
+              {canManage && (
+                <>
+                  <label className="row checklist" title="Reduce la niebla alrededor de cada token, como si tu personaje iluminase su alrededor">
+                    <input
+                      type="checkbox"
+                      checked={props.fogLighting}
+                      onChange={(e) => props.setFogLighting(e.target.checked)}
+                    />
+                    Modo iluminación (niebla alrededor de los tokens)
+                  </label>
+                  {props.fogLighting && (
+                    <div className="field">
+                      <label>Alcance de la luz: {props.fogLightRadius}px</label>
+                      <input
+                        type="range"
+                        min={60}
+                        max={800}
+                        step={20}
+                        value={props.fogLightRadius}
+                        onChange={(e) => props.setFogLightRadius(+e.target.value)}
+                      />
+                      <span className="hint">
+                        Radio de luz alrededor de cada token. Los jugadores solo verán lo que ilumina
+                        su personaje.
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {canManage && (
+                <>
+                  <div className="tool-divider" />
+                  <div className="section-label">Imágenes sobre el mapa</div>
+                  <p className="muted" style={{ margin: 0, fontSize: 11.5 }}>
+                    Elige una imagen y haz clic en el mapa para pegarla como un sticker.
+                  </p>
+                  {images.length === 0 ? (
+                    <p className="muted" style={{ margin: 0, fontSize: 11.5 }}>
+                      Sube imágenes a los recursos de la campaña para usarlas aquí.
+                    </p>
+                  ) : (
+                    <div className="decal-picker">
+                      {images.map((a) => (
+                        <button
+                          key={a.id}
+                          className={`decal-chip ${
+                            props.decalImage?.url === a.url ? 'active' : ''
+                          }`}
+                          title={a.name}
+                          onClick={() =>
+                            props.setDecalImage({ url: a.url, w: 200, h: 200 })
+                          }
+                        >
+                          <img src={assetUrl(a.url) || a.url} alt={a.name} loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="field">
+                    <label>Tamaño al pegar: {props.decalSize}px</label>
+                    <input
+                      type="range"
+                      min={40}
+                      max={800}
+                      step={10}
+                      value={props.decalSize}
+                      onChange={(e) => props.setDecalSize(+e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Opacidad del sticker: {Math.round(props.decalOpacity * 100)}%</label>
+                    <input
+                      type="range"
+                      min={10}
+                      max={100}
+                      value={Math.round(props.decalOpacity * 100)}
+                      onChange={(e) => props.setDecalOpacity(+e.target.value / 100)}
+                    />
+                  </div>
+                </>
+              )}
+
               <label className="row checklist" title="Solo para ti: ves el mapa bajo la niebla sin cambiar lo que ven los jugadores">
                 <input
                   type="checkbox"

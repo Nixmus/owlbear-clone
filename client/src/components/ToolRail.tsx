@@ -23,6 +23,7 @@ const TOOLS: { id: Tool; icon: IconName; tip: string }[] = [
   { id: 'pan', icon: 'pan', tip: 'Desplazar' },
   { id: 'ping', icon: 'pin', tip: 'Señal / Enfocar' },
   { id: 'ruler', icon: 'ruler', tip: 'Medir' },
+  { id: 'decal', icon: 'image', tip: 'Pegar imagen en el mapa' },
 ];
 
 const DRAW: { id: Tool; icon: IconName; tip: string }[] = [
@@ -76,7 +77,11 @@ export default function ToolRail({
 
   return (
     <nav className="tools">
-      {TOOLS.filter((t) => t.id !== 'ruler' || can(role, 'measure')).map((t) => (
+      {TOOLS.filter((t) => {
+        if (t.id === 'ruler') return can(role, 'measure');
+        if (t.id === 'decal') return can(role, 'scene.manage');
+        return true;
+      }).map((t) => (
         <Btn key={t.id} {...t} />
       ))}
       {canDraw && (
