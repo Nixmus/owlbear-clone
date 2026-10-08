@@ -21,18 +21,6 @@ interface Props {
   setColor: (c: string) => void;
   strokeWidth: number;
   setStrokeWidth: (n: number) => void;
-  brushSize: number;
-  setBrushSize: (n: number) => void;
-  fogOccludes: boolean;
-  setFogOccludes: (b: boolean) => void;
-  gmFogTransparent: boolean;
-  setGmFogTransparent: (b: boolean) => void;
-  fogOpacity: number;
-  setFogOpacity: (n: number) => void;
-  fogLighting: boolean;
-  setFogLighting: (b: boolean) => void;
-  fogLightRadius: number;
-  setFogLightRadius: (n: number) => void;
   decalImage: { url: string; w: number; h: number } | null;
   setDecalImage: (v: { url: string; w: number; h: number } | null) => void;
   decalSize: number;
@@ -305,69 +293,6 @@ export default function ScenePanel(props: Props) {
                   </div>
                 </>
               )}
-              <div className="field">
-                <label>Densidad de la niebla nueva: {Math.round(props.fogOpacity * 100)}%</label>
-                <input
-                  type="range"
-                  min={10}
-                  max={100}
-                  value={Math.round(props.fogOpacity * 100)}
-                  onChange={(e) => props.setFogOpacity(+e.target.value / 100)}
-                />
-                <span className="hint">
-                  Se aplica a la niebla que pintes a partir de ahora, tanto con pincel como con
-                  rectángulo o círculo.
-                </span>
-              </div>
-
-              <div className="field">
-                <label>Tamaño del pincel de niebla: {props.brushSize}px</label>
-                <input
-                  type="range"
-                  min={10}
-                  max={400}
-                  value={props.brushSize}
-                  onChange={(e) => props.setBrushSize(+e.target.value)}
-                />
-              </div>
-              <label className="row checklist">
-                <input
-                  type="checkbox"
-                  checked={props.fogOccludes}
-                  onChange={(e) => props.setFogOccludes(e.target.checked)}
-                />
-                Niebla totalmente opaca
-              </label>
-              {canManage && (
-                <>
-                  <label className="row checklist" title="Reduce la niebla alrededor de cada token, como si tu personaje iluminase su alrededor">
-                    <input
-                      type="checkbox"
-                      checked={props.fogLighting}
-                      onChange={(e) => props.setFogLighting(e.target.checked)}
-                    />
-                    Modo iluminación (niebla alrededor de los tokens)
-                  </label>
-                  {props.fogLighting && (
-                    <div className="field">
-                      <label>Alcance de la luz: {props.fogLightRadius}px</label>
-                      <input
-                        type="range"
-                        min={60}
-                        max={800}
-                        step={20}
-                        value={props.fogLightRadius}
-                        onChange={(e) => props.setFogLightRadius(+e.target.value)}
-                      />
-                      <span className="hint">
-                        Radio de luz alrededor de cada token. Los jugadores solo verán lo que ilumina
-                        su personaje.
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-
               {canManage && (
                 <>
                   <div className="tool-divider" />
@@ -421,15 +346,7 @@ export default function ScenePanel(props: Props) {
                 </>
               )}
 
-              <label className="row checklist" title="Solo para ti: ves el mapa bajo la niebla sin cambiar lo que ven los jugadores">
-                <input
-                  type="checkbox"
-                  checked={props.gmFogTransparent}
-                  onChange={(e) => props.setGmFogTransparent(e.target.checked)}
-                />
-                Ver bajo la niebla (solo GM)
-              </label>
-            </>
+              </>
           ) : (
             <p className="hint">
               El director de juego controla los mapas, las escenas y la rejilla. Tú puedes mover tus

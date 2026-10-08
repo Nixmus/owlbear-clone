@@ -466,7 +466,8 @@ textarea {
 /* ---------- Side panels ---------- */
 .side {
   position: absolute;
-  top: 12px;
+  /* Must clear the 44px top bar, otherwise the tab strip sits underneath it. */
+  top: 56px;
   right: 12px;
   bottom: 12px;
   width: 320px;

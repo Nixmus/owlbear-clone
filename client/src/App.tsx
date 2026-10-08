@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { usePersistedState } from './hooks/usePersistedState';
 import Board from './components/Board';
 import TopBar from './components/TopBar';
 import ToolRail from './components/ToolRail';
 import ScenePanel from './components/ScenePanel';
 import Inspector from './components/Inspector';
+import FogPanel from './components/FogPanel';
 import Chat from './components/Chat';
 import History from './components/History';
 import JoinDialog from './components/JoinDialog';
@@ -86,25 +88,37 @@ function Table() {
 
   const role = (self.role as Role) || 'player';
 
-  const [tool, setTool] = useState<Tool>('select');
-  const [color, setColor] = useState(localStorage.getItem('vtt.drawColor') || '#fbbf24');
-  const [strokeWidth, setStrokeWidth] = useState(4);
-  const [brushSize, setBrushSize] = useState(90);
-  const [fillEnabled, setFillEnabled] = useState(false);
-  const [fillColor, setFillColor] = useState('#ffffff33');
-  const [fillOpacity, setFillOpacity] = useState(0.35);
-  const [fogOccludes, setFogOccludes] = useState(true);
-  const [gmFogTransparent, setGmFogTransparent] = useState(false);
-  const [fogOpacity, setFogOpacity] = useState(1);
-  const [fogLighting, setFogLighting] = useState(false);
-  const [fogLightRadius, setFogLightRadius] = useState(240);
+  // Tool settings are persisted: leaving the table and coming back should not
+  // reset the brush, the fog or the fill to their defaults.
+  const [tool, setTool] = usePersistedState<Tool>('vtt.tool', 'select');
+  const [color, setColor] = usePersistedState<string>('vtt.drawColor', '#fbbf24');
+  const [strokeWidth, setStrokeWidth] = usePersistedState('vtt.strokeWidth', 4);
+  const [brushSize, setBrushSize] = usePersistedState('vtt.brushSize', 90);
+  const [fillEnabled, setFillEnabled] = usePersistedState('vtt.fillEnabled', false);
+  const [fillColor, setFillColor] = usePersistedState('vtt.fillColor', '#ffffff33');
+  const [fillOpacity, setFillOpacity] = usePersistedState('vtt.fillOpacity', 0.35);
+  const [fogOccludes, setFogOccludes] = usePersistedState('vtt.fogOccludes', true);
+  // On by default so the GM can prepare a scene without touching anything.
+  const [gmFogTransparent, setGmFogTransparent] = usePersistedState('vtt.gmFogTransparent', true);
+  const [fogOpacity, setFogOpacity] = usePersistedState('vtt.fogOpacity', 1);
+  const [fogLighting, setFogLighting] = usePersistedState('vtt.fogLighting', false);
+  const [fogLightRadius, setFogLightRadius] = usePersistedState('vtt.fogLightRadius', 240);
+  // When on, players only see their own tokens instead of everyone's.
+  const [fogOwnTokensOnly, setFogOwnTokensOnly] = usePersistedState(
+    'vtt.fogOwnTokensOnly',
+    false,
+  );
   // Decal (map image) tool state: which image to place and how big.
-  const [decalImage, setDecalImage] = useState<{ url: string; w: number; h: number } | null>(null);
-  const [decalSize, setDecalSize] = useState(180);
-  const [decalOpacity, setDecalOpacity] = useState(1);
+  const [decalImage, setDecalImage] = usePersistedState<{
+    url: string;
+    w: number;
+    h: number;
+  } | null>('vtt.decalImage', null);
+  const [decalSize, setDecalSize] = usePersistedState('vtt.decalSize', 180);
+  const [decalOpacity, setDecalOpacity] = usePersistedState('vtt.decalOpacity', 1);
   // The side column shows one panel at a time; they stay mounted so unsaved
   // edits and scroll positions survive switching.
-  const [sideTab, setSideTab] = useState<'scene' | 'token' | 'chat' | 'history'>('chat');
+  const [sideTab, setSideTab] = useState<'scene' | 'fog' | 'token' | 'chat' | 'history'>('chat');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUsers, setShowUsers] = useState(false);
   // On phones the side panels sit on top of the map, so they start closed and
@@ -144,10 +158,6 @@ function Table() {
     window.addEventListener('vtt:selection', handler);
     return () => window.removeEventListener('vtt:selection', handler);
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem('vtt.drawColor', color);
-  }, [color]);
 
   // Keep the account id (and display name) on `self` in sync with the session.
   // Tokens created afterwards record `userId`, which survives reconnects.
@@ -296,6 +306,7 @@ function Table() {
         fogOpacity={fogOpacity}
         fogLighting={fogLighting}
         fogLightRadius={fogLightRadius}
+        ownTokensOnly={fogLighting && fogOwnTokensOnly}
         decalImage={decalImage}
         decalSize={decalSize}
         decalOpacity={decalOpacity}
@@ -316,6 +327,7 @@ function Table() {
           {(
             [
               ['scene', 'Escena', 'map'],
+              ['fog', 'Niebla', 'fog'],
               ['token', 'Ficha', 'user'],
               ['chat', 'Chat', 'chat'],
               ['history', 'Historial', 'history'],
@@ -341,18 +353,6 @@ function Table() {
               setColor={setColor}
               strokeWidth={strokeWidth}
               setStrokeWidth={setStrokeWidth}
-              brushSize={brushSize}
-              setBrushSize={setBrushSize}
-              fogOccludes={fogOccludes}
-              setFogOccludes={setFogOccludes}
-              gmFogTransparent={gmFogTransparent}
-              setGmFogTransparent={setGmFogTransparent}
-              fogOpacity={fogOpacity}
-              setFogOpacity={setFogOpacity}
-              fogLighting={fogLighting}
-              setFogLighting={setFogLighting}
-              fogLightRadius={fogLightRadius}
-              setFogLightRadius={setFogLightRadius}
               decalImage={decalImage}
               setDecalImage={setDecalImage}
               decalSize={decalSize}
@@ -367,6 +367,26 @@ function Table() {
               setFillOpacity={setFillOpacity}
             />
           </div>
+          <div className="side-panel" hidden={sideTab !== 'fog'}>
+            <FogPanel
+              role={role}
+              fogOccludes={fogOccludes}
+              setFogOccludes={setFogOccludes}
+              gmFogTransparent={gmFogTransparent}
+              setGmFogTransparent={setGmFogTransparent}
+              fogOpacity={fogOpacity}
+              setFogOpacity={setFogOpacity}
+              brushSize={brushSize}
+              setBrushSize={setBrushSize}
+              fogLighting={fogLighting}
+              setFogLighting={setFogLighting}
+              fogLightRadius={fogLightRadius}
+              setFogLightRadius={setFogLightRadius}
+              fogOwnTokensOnly={fogOwnTokensOnly}
+              setFogOwnTokensOnly={setFogOwnTokensOnly}
+            />
+          </div>
+
           <div className="side-panel" hidden={sideTab !== 'token'}>
             <Inspector selectedId={selectedId} role={role} />
           </div>

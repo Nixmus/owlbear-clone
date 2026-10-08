@@ -24,6 +24,8 @@ interface Props {
   decalOpacity: number;
   fogLighting: boolean;
   fogLightRadius: number;
+  /** When on, players only see their own tokens. The GM is unaffected. */
+  ownTokensOnly: boolean;
   fillEnabled: boolean;
   fillColor: string;
   fillOpacity: number;
@@ -70,6 +72,7 @@ export default function Board({
   decalOpacity,
   fogLighting,
   fogLightRadius,
+  ownTokensOnly,
   fillEnabled,
   fillColor,
   fillOpacity,
@@ -128,10 +131,15 @@ export default function Board({
   const [showMap, setShowMap] = useState(true);
   const lastCursorSent = useRef(0);
 
-  const sceneTokens = useMemo(
-    () => state.tokens.filter((t) => t.sceneId === scene?.id),
-    [state.tokens, scene?.id],
-  );
+  const sceneTokens = useMemo(() => {
+    const inScene = state.tokens.filter((t) => t.sceneId === scene?.id);
+    // With lighting on and "own tokens only" enabled, players see just their
+    // own characters; the GM always sees everything.
+    if (!ownTokensOnly || isGM) return inScene;
+    return inScene.filter(
+      (t) => !t.owner || t.owner === self.id || (!!t.userId && t.userId === self.userId),
+    );
+  }, [state.tokens, scene?.id, ownTokensOnly, isGM, self.id]);
   const sceneDrawings = useMemo(
     () => state.drawings.filter((d) => d.sceneId === scene?.id),
     [state.drawings, scene?.id],
@@ -147,8 +155,8 @@ export default function Board({
     [state.erasers, scene?.id],
   );
 
-  // Lighting mode: one light per token, centred on it and at least as big as
-  // the token itself so a character never stands in pitch dark.
+  // Lighting mode: one light per token. `r` is the maximum vision distance, the
+  // distance where the fog becomes fully opaque again.
   const lights = useMemo(() => {
     if (!fogLighting) return [];
     return sceneTokens
@@ -1220,7 +1228,11 @@ function RulerHud({ ruler, gridSize }: { ruler: { a: Vec; b: Vec }; gridSize: nu
   );
 }
 
-function FogLayer({
+/**
+ * Memoized on purpose: rebuilding the fog mask means re-rendering every shape
+ * in it, and the board re-renders on every pointer move while drawing.
+ */
+const FogLayer = memo(function FogLayer({
   scene,
   shapes,
   draft,
@@ -1288,27 +1300,47 @@ function FogLayer({
             );
           })}
           {(() => {
+            // The draft brush is drawn as ONE stroked path rather than one
+            // circle per stamp. With hundreds of stamps the mask was being
+            // rebuilt on every pointer move, which is what made the fog brush
+            // crawl.
             const pts = draft?.points || [];
-            const circles: JSX.Element[] = [];
-            for (let i = 0; i + 1 < pts.length; i += 2) {
-              circles.push(
-                <circle
-                  key={`draft-${i}`}
-                  cx={pts[i]}
-                  cy={pts[i + 1]}
-                  r={draftRadius}
-                  fill={draft?.mode === 'reveal' ? 'black' : 'white'}
-                />,
-              );
-            }
-            return circles;
+            if (pts.length < 2) return null;
+            let d = `M${pts[0]} ${pts[1]}`;
+            for (let i = 2; i + 1 < pts.length; i += 2) d += `L${pts[i]} ${pts[i + 1]}`;
+            return (
+              <path
+                key="draft-brush"
+                d={d}
+                fill="none"
+                stroke={draft?.mode === 'reveal' ? 'black' : 'white'}
+                strokeWidth={draftRadius * 2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
           })()}
-          {/* Lighting: reveal the fog around each token so players only see what
-              their character lights up. Drawn as black in the mask, same as
-              a reveal stroke. */}
+          {/* Lighting: black in the mask means no fog, white means full fog, so a
+              radial ramp from black at the centre to white at the rim gives
+              progressive falloff: clear next to the token, fog closing back in
+              towards the maximum vision distance. */}
+          {lightOn && (
+            <radialGradient id={`light-${scene.id}`}>
+              <stop offset="0%" stopColor="#000" />
+              <stop offset="35%" stopColor="#000" />
+              <stop offset="70%" stopColor="#5a5a5a" />
+              <stop offset="100%" stopColor="#fff" />
+            </radialGradient>
+          )}
           {lightOn &&
             lights.map((l, i) => (
-              <circle key={`light-${i}`} cx={l.x} cy={l.y} r={l.r} fill="black" />
+              <circle
+                key={`light-${i}`}
+                cx={l.x}
+                cy={l.y}
+                r={l.r}
+                fill={`url(#light-${scene.id})`}
+              />
             ))}
           {(() => {
             if (!draftShape) return null;
@@ -1343,7 +1375,7 @@ function FogLayer({
       <rect x={0} y={0} width={scene.width} height={scene.height} fill={fill} mask={`url(#${id})`} />
     </svg>
   );
-}
+});
 
 function pointsToRect(p: number[]): { x: number; y: number; w: number; h: number } | null {
   if (p.length < 4) return null;
