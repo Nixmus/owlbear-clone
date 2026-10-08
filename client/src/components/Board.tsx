@@ -7,6 +7,9 @@ import { useViewport } from '../hooks/useViewport';
 import { clamp, nanoid } from '../util';
 import type { Vec } from '../util';
 
+/** Upper bound on stamps per fog stroke, so a long drag cannot flood state. */
+const MAX_FOG_STAMPS = 400;
+
 interface Props {
   tool: Tool;
   color: string;
@@ -24,7 +27,7 @@ type Drag =
   | { type: 'token'; id: string; offsetX: number; offsetY: number; moved: boolean }
   | { type: 'resize'; id: string; startSize: number; startX: number; startY: number }
   | { type: 'draw'; points: number[] }
-  | { type: 'fog'; start: Vec; current: Vec }
+  | { type: 'fog'; mode: 'reveal' | 'hide'; stamps: number[]; last: Vec }
   | { type: 'ruler'; start: Vec; current: Vec }
   | { type: 'erase'; points: number[] }
   | { type: 'marquee' }
@@ -82,7 +85,7 @@ export default function Board({
   const [drag, setDrag] = useState<Drag>(null);
   const [draftPoints, setDraftPoints] = useState<number[] | null>(null);
   const [draftErase, setDraftErase] = useState<number[] | null>(null);
-  const [draftFog, setDraftFog] = useState<{ a: Vec; b: Vec; mode: 'reveal' | 'hide' } | null>(null);
+  const [draftFog, setDraftFog] = useState<{ mode: 'reveal' | 'hide'; points: number[] } | null>(null);
   const [ruler, setRuler] = useState<{ a: Vec; b: Vec } | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
   const [showMap, setShowMap] = useState(true);
@@ -265,9 +268,9 @@ export default function Board({
       case 'fog-hide': {
         if (!can(role, 'fog.edit')) break;
         const mode = tool === 'fog-reveal' ? 'reveal' : 'hide';
-        // stroke mode with brush: paint a small square immediately
-        setDrag({ type: 'fog', start: w, current: w });
-        setDraftFog({ a: w, b: w, mode });
+        // Paint a first stamp right away so a tap leaves a dab.
+        setDrag({ type: 'fog', mode, stamps: [w.x, w.y, w.x, w.y], last: { x: w.x, y: w.y } });
+        setDraftFog({ mode, points: [w.x, w.y, w.x, w.y] });
         break;
       }
       case 'pen':
@@ -362,9 +365,28 @@ export default function Board({
         setDrag({ ...drag, points: pts });
         break;
       }
-      case 'fog':
-        setDraftFog({ a: drag.start, b: w, mode: draftFog?.mode || 'reveal' });
+      case 'fog': {
+        // Brush: walk from the last stamp to the current point and drop a stamp
+        // every `spacing` units, so the trail is continuous but the count is
+        // bounded by distance rather than by pointer event frequency.
+        const stamps = [...drag.stamps];
+        const last = drag.last;
+        const spacing = Math.max(2, brushSize * 0.35);
+        const dx = w.x - last.x;
+        const dy = w.y - last.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist >= 1) {
+          const steps = Math.min(Math.floor(dist / spacing), MAX_FOG_STAMPS);
+          for (let i = 1; i <= steps; i++) {
+            const t = (i * spacing) / dist;
+            stamps.push(last.x + dx * t, last.y + dy * t);
+          }
+        }
+        drag.last = { x: w.x, y: w.y };
+        drag.stamps = stamps;
+        setDraftFog({ mode: drag.mode, points: stamps });
         break;
+      }
       case 'ruler':
         setDrag({ ...drag, current: w });
         setRuler({ a: drag.start, b: w });
@@ -415,9 +437,23 @@ export default function Board({
         break;
       }
       case 'fog': {
-        if (!draftFog) break;
-        const shape = fogShapeFromDraft(draftFog, scene.id, brushSize);
-        if (shape) dispatch({ kind: 'fog.add', shape });
+        // Commit the whole stroke as one action so it is a single message and a
+        // single undo step.
+        if (!draftFog || !draftFog.points.length) break;
+        const r = brushSize / 2;
+        const shapes: FogShape[] = [];
+        for (let i = 0; i + 3 < draftFog.points.length; i += 2) {
+          const x = draftFog.points[i];
+          const y = draftFog.points[i + 1];
+          shapes.push({
+            id: nanoid(),
+            sceneId: scene.id,
+            mode: draftFog.mode,
+            points: [x - r, y - r, x + r, y + r],
+            round: true,
+          });
+        }
+        if (shapes.length) dispatch({ kind: 'fog.addMany', shapes });
         break;
       }
       case 'erase': {
@@ -469,26 +505,6 @@ export default function Board({
   );
 
   /* ---------------- helpers ---------------- */
-  function fogShapeFromDraft(
-    d: { a: Vec; b: Vec; mode: 'reveal' | 'hide' },
-    sceneId: string,
-    radius: number,
-  ): FogShape | null {
-    const x = Math.min(d.a.x, d.b.x);
-    const y = Math.min(d.a.y, d.b.y);
-    const w = Math.abs(d.b.x - d.a.x);
-    const h = Math.abs(d.b.y - d.a.y);
-    // treat as brush dot if drag is tiny
-    if (w < 4 && h < 4) {
-      return {
-        id: nanoid(),
-        sceneId,
-        mode: d.mode,
-        points: [d.a.x - radius, d.a.y - radius, d.a.x + radius, d.a.y + radius],
-      };
-    }
-    return { id: nanoid(), sceneId, mode: d.mode, points: [x, y, x + w, y + h] };
-  }
 
   /* ---------------- grid ---------------- */
   const gridPath = useMemo(() => {
@@ -664,6 +680,7 @@ export default function Board({
             scene={scene}
             shapes={sceneFog}
             draft={draftFog}
+            draftRadius={brushSize}
             fogOccludes={fogOccludes}
             seeThrough={isGM && gmFogTransparent}
           />
@@ -995,18 +1012,22 @@ function FogLayer({
   scene,
   shapes,
   draft,
+  draftRadius: draftRadiusProp,
   fogOccludes,
   seeThrough,
 }: {
   scene: { id: string; width: number; height: number };
   shapes: FogShape[];
-  draft: { a: Vec; b: Vec; mode: 'reveal' | 'hide' } | null;
+  draft: { mode: 'reveal' | 'hide'; points: number[] } | null;
+  draftRadius: number;
   fogOccludes: boolean;
   seeThrough?: boolean;
 }) {
   const id = `fogmask-${scene.id}`;
   const rects = shapes.map((s) => ({ ...s, r: pointsToRect(s.points) })).filter((s) => s.r);
-  const draftRect = draft ? pointsToRect([draft.a.x, draft.a.y, draft.b.x, draft.b.y]) ?? dotRect(draft.a) : null;
+  // The draft is a flat [x,y,...] point list; each point becomes one circle of
+  // the current brush radius.
+  const draftRadius = (draftRadiusProp || 0) / 2;
 
   // The GM can reveal the map "under" the fog (see-through) to prepare scenes.
   const fill = seeThrough ? '#0b0b0f2e' : fogOccludes ? '#0b0b0f' : '#0b0b0fbb';
@@ -1018,20 +1039,45 @@ function FogLayer({
           <rect x={0} y={0} width={scene.width} height={scene.height} fill="white" />
           {rects.map((s) =>
             s.mode === 'reveal' ? (
-              <rect key={s.id} x={s.r!.x} y={s.r!.y} width={s.r!.w} height={s.r!.h} fill="black" />
+              s.round ? (
+                <circle
+                  key={s.id}
+                  cx={(s.r!.x + s.r!.x + s.r!.w) / 2}
+                  cy={s.r!.y + s.r!.h / 2}
+                  r={s.r!.w / 2}
+                  fill="black"
+                />
+              ) : (
+                <rect key={s.id} x={s.r!.x} y={s.r!.y} width={s.r!.w} height={s.r!.h} fill="black" />
+              )
+            ) : s.round ? (
+              <circle
+                key={s.id}
+                cx={s.r!.x + s.r!.w / 2}
+                cy={s.r!.y + s.r!.h / 2}
+                r={s.r!.w / 2}
+                fill="white"
+              />
             ) : (
               <rect key={s.id} x={s.r!.x} y={s.r!.y} width={s.r!.w} height={s.r!.h} fill="white" />
             ),
           )}
-          {draftRect && (
-            <rect
-              x={draftRect.x}
-              y={draftRect.y}
-              width={draftRect.w}
-              height={draftRect.h}
-              fill={draft?.mode === 'reveal' ? 'black' : 'white'}
-            />
-          )}
+          {(() => {
+            const pts = draft?.points || [];
+            const circles: JSX.Element[] = [];
+            for (let i = 0; i + 1 < pts.length; i += 2) {
+              circles.push(
+                <circle
+                  key={`draft-${i}`}
+                  cx={pts[i]}
+                  cy={pts[i + 1]}
+                  r={draftRadius}
+                  fill={draft?.mode === 'reveal' ? 'black' : 'white'}
+                />,
+              );
+            }
+            return circles;
+          })()}
         </mask>
       </defs>
       <rect x={0} y={0} width={scene.width} height={scene.height} fill={fill} mask={`url(#${id})`} />
@@ -1044,11 +1090,6 @@ function pointsToRect(p: number[]): { x: number; y: number; w: number; h: number
   const x = Math.min(p[0], p[2]);
   const y = Math.min(p[1], p[3]);
   return { x, y, w: Math.abs(p[2] - p[0]), h: Math.abs(p[3] - p[1]) };
-}
-
-function dotRect(a: Vec) {
-  const r = 18;
-  return { x: a.x - r, y: a.y - r, w: r * 2, h: r * 2 };
 }
 
 /**

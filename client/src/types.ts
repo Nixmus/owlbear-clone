@@ -65,7 +65,9 @@ export interface FogShape {
   id: string;
   sceneId: string;
   mode: 'reveal' | 'hide';
-  points: number[]; // flattened polygon
+  points: number[]; // flattened polygon, [x1,y1,x2,y2] as a bounding box
+  /** Brush stamps are drawn as circles; older shapes stay rectangular. */
+  round?: boolean;
 }
 
 export interface ChatMessage {
@@ -132,6 +134,8 @@ export type Action =
   | { kind: 'erase.remove'; id: string }
   | { kind: 'erase.clear'; sceneId: string }
   | { kind: 'fog.add'; shape: FogShape }
+  | { kind: 'fog.addMany'; shapes: FogShape[] }
+  | { kind: 'fog.removeMany'; ids: string[] }
   | { kind: 'fog.clear'; sceneId: string }
   | { kind: 'chat.add'; message: ChatMessage }
   | { kind: 'log.add'; entry: GameLogEntry };

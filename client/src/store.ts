@@ -168,6 +168,17 @@ export function reduce(state: RoomState, action: Action): RoomState {
       return state.fog.some((f) => f.id === action.shape.id)
         ? state
         : { ...state, fog: [...state.fog, action.shape] };
+    // A brush stroke is many stamps; committing them in one action keeps a
+    // single WebSocket message per drag instead of one per stamp.
+    case 'fog.addMany': {
+      const known = new Set(state.fog.map((f) => f.id));
+      const fresh = action.shapes.filter((s) => !known.has(s.id));
+      return fresh.length ? { ...state, fog: [...state.fog, ...fresh] } : state;
+    }
+    case 'fog.removeMany': {
+      const drop = new Set(action.ids);
+      return { ...state, fog: state.fog.filter((f) => !drop.has(f.id)) };
+    }
     case 'fog.clear':
       return { ...state, fog: state.fog.filter((f) => f.sceneId !== action.sceneId) };
     case 'chat.add': {

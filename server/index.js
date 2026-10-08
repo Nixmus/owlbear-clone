@@ -257,6 +257,35 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
       if (!action.shape?.id) return false;
       if (!state.fog.some((x) => x.id === action.shape.id)) state.fog.push(action.shape);
       return true;
+    case 'fog.addMany': {
+      if (!isGM) return false;
+      if (!Array.isArray(action.shapes)) return false;
+      if (!state.fog) state.fog = [];
+      const seen = new Set(state.fog.map((x) => x.id));
+      let added = false;
+      for (const s of action.shapes) {
+        if (!s || !s.id || seen.has(s.id)) continue;
+        if (s.mode !== 'reveal' && s.mode !== 'hide') continue;
+        if (!Array.isArray(s.points) || s.points.length < 4) continue;
+        seen.add(s.id);
+        state.fog.push({
+          id: s.id,
+          sceneId: s.sceneId,
+          mode: s.mode,
+          points: s.points.map(Number),
+          round: !!s.round,
+        });
+        added = true;
+      }
+      return added;
+    }
+    case 'fog.removeMany': {
+      if (!isGM) return false;
+      if (!Array.isArray(action.ids)) return false;
+      const drop = new Set(action.ids.map(String));
+      state.fog = (state.fog || []).filter((f) => !drop.has(f.id));
+      return true;
+    }
     case 'fog.clear':
       if (!isGM) return false;
       state.fog = state.fog.filter((f) => f.sceneId !== action.sceneId);
