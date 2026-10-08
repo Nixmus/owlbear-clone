@@ -160,6 +160,12 @@ export interface GlobalCharacter {
   updatedAt: number;
 }
 
+export interface AssetFolder {
+  id: string;
+  campaignId: string;
+  name: string;
+}
+
 export interface Asset {
   id: string;
   campaignId: string;

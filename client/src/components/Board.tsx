@@ -149,7 +149,7 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         const t = state.tokens.find((x) => x.id === selectedId);
-        const mine = t && (!t.owner || t.owner === self.id);
+        const mine = t && (!t.owner || t.owner === self.id || (!!t.userId && t.userId === self.userId));
         if (t && !t.locked && (can(role, 'token.deleteAny') || mine)) {
           dispatch({ kind: 'token.remove', id: selectedId });
         }
@@ -374,7 +374,8 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
     e.stopPropagation();
     if (token.hidden && !isGM) return;
     // Players may only move their own (or unowned) tokens.
-    const mine = !token.owner || token.owner === self.id;
+    const mine =
+      !token.owner || token.owner === self.id || (!!token.userId && token.userId === self.userId);
     const canMove = can(role, 'token.moveAny') || mine;
     if (!canMove || token.locked) return;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);

@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   ended_at    INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS asset_folders (
+  id          TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  UNIQUE (campaign_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS rooms (
   id          TEXT PRIMARY KEY,
   campaign_id TEXT REFERENCES campaigns(id) ON DELETE SET NULL,

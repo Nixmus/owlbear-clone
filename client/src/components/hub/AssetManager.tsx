@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, assetUrl, downloadAssetZip, type Asset } from '../../api';
+import { api, assetUrl, downloadAssetZip, type Asset, type AssetFolder } from '../../api';
 import Icon from '../Icon';
 import SearchField from '../SearchField';
 
@@ -20,6 +20,7 @@ function formatDate(ts: number): string {
 
 export default function AssetManager({ campaignId }: { campaignId: string }) {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [folders, setFolders] = useState<AssetFolder[]>([]);
   const [cwd, setCwd] = useState(''); // '' = root (sin carpeta)
   const [uploadKind, setUploadKind] = useState('image');
   const [onlyKind, setOnlyKind] = useState('all');
@@ -30,6 +31,11 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [dropActive, setDropActive] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
 
@@ -43,11 +49,23 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     setCwd('');
     setQuery('');
     setSelectedId(null);
+    setCreating(false);
+    setRenaming(null);
   }, [campaignId]);
 
   async function load() {
-    const d = await api.get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`);
-    setAssets(d.assets);
+    const [assetsRes, foldersRes] = await Promise.all([
+      api.get<{ assets: Asset[] }>(`/campaigns/${campaignId}/assets`),
+      api.get<{ folders: AssetFolder[] }>(`/campaigns/${campaignId}/folders`).catch(() => ({
+        folders: [] as AssetFolder[],
+      })),
+    ]);
+    setAssets(assetsRes.assets);
+    setFolders(foldersRes.folders);
+    api
+      .get<{ role: string }>(`/campaigns/${campaignId}`)
+      .then((d) => setCanEdit(d.role === 'owner' || d.role === 'gm'))
+      .catch(() => setCanEdit(false));
   }
 
   /** Uploads land in the folder currently open - no separate target field. */
@@ -86,10 +104,73 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     navigator.clipboard?.writeText(assetUrl(url) || url);
   }
 
-  const folderNames = useMemo(
-    () => [...new Set(assets.map((a) => a.folder).filter(Boolean))].sort(),
-    [assets],
-  );
+  /* ---------------- folders ---------------- */
+
+  /**
+   * Folders can predate the asset_folders table (assets only stored a name),
+   * so the visible list is the union of both sources. Mutations resolve the id
+   * lazily, which keeps us from writing on every page load.
+   */
+  const folderNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of folders) set.add(f.name);
+    for (const a of assets) if (a.folder) set.add(a.folder);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [folders, assets]);
+
+  async function ensureFolder(name: string): Promise<string> {
+    const existing = folders.find((f) => f.name === name);
+    if (existing) return existing.id;
+    const r = await api.post<{ folder: AssetFolder }>(`/campaigns/${campaignId}/folders`, { name });
+    setFolders((prev) => (prev.some((f) => f.name === name) ? prev : [...prev, r.folder]));
+    return r.folder.id;
+  }
+
+  async function createFolder() {
+    const name = newName.trim();
+    if (!name) {
+      setCreating(false);
+      return;
+    }
+    setError('');
+    try {
+      await api.post(`/campaigns/${campaignId}/folders`, { name });
+      setNewName('');
+      setCreating(false);
+      await load();
+      setCwd(name);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function renameFolder(from: string, to: string) {
+    const name = to.trim();
+    setRenaming(null);
+    if (!name || name === from) return;
+    setError('');
+    try {
+      const id = await ensureFolder(from);
+      await api.patch(`/folders/${id}`, { name });
+      if (cwd === from) setCwd(name);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function deleteFolder(name: string) {
+    if (!confirm(`¿Eliminar la carpeta “${name}”? Sus archivos se moverán a la raíz.`)) return;
+    setError('');
+    try {
+      const id = await ensureFolder(name);
+      await api.del(`/folders/${id}`);
+      if (cwd === name) setCwd('');
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   const files = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -107,6 +188,7 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
     setCwd(name);
     setSelectedId(null);
     setQuery('');
+    setRenaming(null);
   }
 
   function goUp() {
@@ -261,17 +343,71 @@ export default function AssetManager({ campaignId }: { campaignId: string }) {
             <Icon name="home" size={15} />
             <span>Todos los recursos</span>
           </button>
-          {folderNames.map((f) => (
-            <button
-              key={f}
-              className={`fm-side-item ${cwd === f ? 'active' : ''}`}
-              onClick={() => openFolder(f)}
-            >
-              <Icon name="folder" size={15} />
-              <span className="fm-side-name">{f}</span>
-              <em>{assets.filter((a) => a.folder === f).length}</em>
-            </button>
-          ))}
+
+          {folderNames.map((f) =>
+            renaming === f ? (
+              <input
+                key={f}
+                className="fm-side-input"
+                value={renameValue}
+                autoFocus
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={() => renameFolder(f, renameValue)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') renameFolder(f, renameValue);
+                  if (e.key === 'Escape') setRenaming(null);
+                }}
+              />
+            ) : (
+              <div key={f} className={`fm-side-row ${cwd === f ? 'active' : ''}`}>
+                <button className="fm-side-item" onClick={() => openFolder(f)} title={f}>
+                  <Icon name="folder" size={15} />
+                  <span className="fm-side-name">{f}</span>
+                  <em>{assets.filter((a) => a.folder === f).length}</em>
+                </button>
+                {canEdit && (
+                  <span className="fm-side-tools">
+                    <button
+                      className="icon-btn"
+                      title="Renombrar carpeta"
+                      onClick={() => {
+                        setRenaming(f);
+                        setRenameValue(f);
+                      }}
+                    >
+                      <Icon name="edit" size={13} />
+                    </button>
+                    <button className="icon-btn danger" title="Eliminar carpeta" onClick={() => deleteFolder(f)}>
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </span>
+                )}
+              </div>
+            ),
+          )}
+
+          {canEdit &&
+            (creating ? (
+              <input
+                className="fm-side-input"
+                placeholder="Nombre de la carpeta"
+                value={newName}
+                autoFocus
+                onChange={(e) => setNewName(e.target.value)}
+                onBlur={createFolder}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createFolder();
+                  if (e.key === 'Escape') {
+                    setCreating(false);
+                    setNewName('');
+                  }
+                }}
+              />
+            ) : (
+              <button className="fm-side-new" onClick={() => setCreating(true)}>
+                <Icon name="plus" size={14} /> Nueva carpeta
+              </button>
+            ))}
         </aside>
 
         <div

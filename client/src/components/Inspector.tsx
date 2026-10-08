@@ -73,7 +73,13 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
   }
 
   const isGM = can(role, 'token.deleteAny');
-  const canEdit = isGM || !token.owner || token.owner === self.id;
+  // Ownership survives reconnects: `owner` is a per-session clientId, while
+  // `userId` is the account, so accept either.
+  const canEdit =
+    isGM ||
+    !token.owner ||
+    token.owner === self.id ||
+    (!!token.userId && token.userId === self.userId);
   const patch = (p: Partial<Token>) => {
     dispatch({ kind: 'token.update', id: token.id, patch: p });
 

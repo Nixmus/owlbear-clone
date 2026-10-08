@@ -1390,6 +1390,75 @@ textarea {
   flex: none;
 }
 
+/* A folder row: name button plus the rename/delete tools that appear on it. */
+.fm-side-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.fm-side-row:hover {
+  background: var(--panel-2);
+}
+.fm-side-row.active {
+  background: var(--panel-3);
+  border-color: var(--border);
+}
+.fm-side-row .fm-side-item {
+  flex: 1;
+  width: auto;
+  border: 0;
+  background: transparent;
+  padding-left: 9px;
+}
+.fm-side-row.active .fm-side-item {
+  background: transparent;
+}
+.fm-side-tools {
+  display: none;
+  gap: 1px;
+  flex: none;
+  padding-right: 4px;
+}
+.fm-side-row:hover .fm-side-tools,
+.fm-side-row:focus-within .fm-side-tools {
+  display: flex;
+}
+.fm-side-row .fm-side-tools .icon-btn {
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+}
+
+.fm-side-input,
+.fm-side-new {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+.fm-side-input::placeholder {
+  color: var(--text-dim);
+}
+.fm-side-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.fm-side-new:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 /* content pane */
 .fm-content {
   display: grid;
@@ -1531,6 +1600,12 @@ textarea {
     width: auto;
     flex: none;
     white-space: nowrap;
+  }
+  .fm-side-tools {
+    display: flex;
+  }
+  .fm-side-row {
+    flex: none;
   }
   .fm-toolbar {
     gap: 8px;
@@ -1823,6 +1898,8 @@ textarea {
 }
 
 /* ---------- search field ---------- */
+/* Styled on its own rather than relying on a .field ancestor, so it looks the
+   same wherever it is dropped in (gallery filters, asset toolbar, ...). */
 .search-field {
   position: relative;
   display: flex;
@@ -1831,8 +1908,19 @@ textarea {
 }
 .search-field input {
   width: 100%;
-  padding-left: 30px !important;
-  padding-right: 28px !important;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 28px 6px 30px;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+.search-field input:focus {
+  border-color: var(--accent);
+}
+.search-field input::placeholder {
+  color: var(--text-dim);
 }
 .search-ico {
   position: absolute;

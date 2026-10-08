@@ -545,6 +545,94 @@ router.get('/campaigns/:id/assets', auth, (req, res) => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ * Asset folders
+ *
+ * Folders are their own table so an empty folder can exist; assets keep
+ * pointing at a folder by name (assets.folder), so a rename has to update
+ * both sides.
+ * ------------------------------------------------------------------ */
+
+const FOLDER_MAX = 60;
+
+function cleanFolderName(raw) {
+  const name = String(raw || '').trim().replace(/\s+/g, ' ');
+  if (!name) return null;
+  if (name.length > FOLDER_MAX) return null;
+  if (/[\\/:*?"<>|]/.test(name)) return null;
+  return name;
+}
+
+router.get('/campaigns/:id/folders', auth, (req, res) => {
+  const { role } = campaignRole(req.params.id, req.user.id);
+  if (!role) return res.status(404).json({ error: 'Not found' });
+  const rows = db
+    .prepare('SELECT * FROM asset_folders WHERE campaign_id = ? ORDER BY name COLLATE NOCASE')
+    .all(req.params.id);
+  res.json({ folders: rows.map((f) => ({ id: f.id, campaignId: f.campaign_id, name: f.name })) });
+});
+
+router.post('/campaigns/:id/folders', auth, (req, res) => {
+  const { role } = campaignRole(req.params.id, req.user.id);
+  if (!role) return res.status(404).json({ error: 'Not found' });
+  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  const name = cleanFolderName(body(req).name);
+  if (!name) return res.status(400).json({ error: 'Nombre de carpeta no válido' });
+  const id = nanoid();
+  try {
+    db.prepare(
+      'INSERT INTO asset_folders (id, campaign_id, name, created_at) VALUES (?, ?, ?, ?)',
+    ).run(id, req.params.id, name, now());
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'Ya existe una carpeta con ese nombre' });
+    }
+    throw e;
+  }
+  res.json({ ok: true, folder: { id, campaignId: req.params.id, name } });
+});
+
+router.patch('/folders/:id', auth, (req, res) => {
+  const f = db.prepare('SELECT * FROM asset_folders WHERE id = ?').get(req.params.id);
+  if (!f) return res.status(404).json({ error: 'Not found' });
+  const { role } = campaignRole(f.campaign_id, req.user.id);
+  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  const name = cleanFolderName(body(req).name);
+  if (!name) return res.status(400).json({ error: 'Nombre de carpeta no válido' });
+  if (name === f.name) return res.json({ ok: true });
+  try {
+    db.prepare('UPDATE asset_folders SET name = ? WHERE id = ?').run(name, req.params.id);
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'Ya existe una carpeta con ese nombre' });
+    }
+    throw e;
+  }
+  // Assets reference folders by name, so follow the rename.
+  db.prepare('UPDATE assets SET folder = ? WHERE campaign_id = ? AND folder = ?').run(
+    name,
+    f.campaign_id,
+    f.name,
+  );
+  res.json({ ok: true });
+});
+
+router.delete('/folders/:id', auth, (req, res) => {
+  const f = db.prepare('SELECT * FROM asset_folders WHERE id = ?').get(req.params.id);
+  if (!f) return res.status(404).json({ error: 'Not found' });
+  const { role } = campaignRole(f.campaign_id, req.user.id);
+  if (!canEdit(role)) return res.status(403).json({ error: 'Forbidden' });
+  // Like a file manager: deleting a folder moves its contents to the root
+  // instead of destroying the assets.
+  db.prepare('UPDATE assets SET folder = ? WHERE campaign_id = ? AND folder = ?').run(
+    '',
+    f.campaign_id,
+    f.name,
+  );
+  db.prepare('DELETE FROM asset_folders WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 // Move an asset to a folder (or clear it).
 router.patch('/assets/:id', auth, (req, res) => {
   const a = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);

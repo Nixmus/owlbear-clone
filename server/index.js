@@ -347,6 +347,17 @@ wss.on('connection', (ws) => {
       roster.set(ws.clientId, player);
 
       const { state } = getRoom(roomId);
+
+      // Reclaim tokens created by this account in a previous session.
+      // `owner` holds a clientId, which is regenerated on every connection, so
+      // without this a player would lose control of their own tokens as soon as
+      // they left and came back. `userId` is the stable identity.
+      if (userId) {
+        for (const t of state.tokens || []) {
+          if (t.userId === userId && t.owner !== ws.clientId) t.owner = ws.clientId;
+        }
+      }
+
       // Record the join in the shared history.
       if (!state.log) state.log = [];
       state.log.push({
