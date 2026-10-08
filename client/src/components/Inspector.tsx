@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { nanoid } from '../util';
 import { useStore } from '../store';
+import { api } from '../api';
 import Icon from './Icon';
 import { can, type Role } from '../permissions';
 import type { Token } from '../types';
@@ -12,11 +13,38 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
   const state = useStore((s) => s.state);
   const dispatch = useStore((s) => s.dispatch);
   const self = useStore((s) => s.self);
+  const characters = useStore((s) => s.characters);
+  const setCharacters = useStore((s) => s.setCharacters);
   const fileRef = useRef<HTMLInputElement>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   const scene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
   const token = state.tokens.find((t) => t.id === selectedId) || null;
+
+  // --- linked character sheet -------------------------------------------
+  // The sheet is the source of truth for name/portrait: changes made in the
+  // hub flow onto the token here. Edits made in this panel flow the other way
+  // through `patch()`, which mirrors them back onto the sheet AND updates the
+  // local `characters` list so the two never disagree.
+  const linkedCharacter = token?.characterId
+    ? characters.find((c) => c.id === token.characterId) ?? null
+    : null;
+  const linkedName = linkedCharacter?.name ?? null;
+  const linkedPortrait = linkedCharacter?.portraitUrl ?? null;
+  const linkedTokenId = linkedCharacter ? token!.id : null;
+
+  useEffect(() => {
+    if (!linkedTokenId) return;
+    const current = useStore.getState().state.tokens.find((t) => t.id === linkedTokenId);
+    if (!current) return;
+    if (linkedName !== null && current.name !== linkedName) {
+      dispatch({ kind: 'token.update', id: linkedTokenId, patch: { name: linkedName } });
+    }
+    if (linkedPortrait !== null && current.imageUrl !== linkedPortrait) {
+      dispatch({ kind: 'token.update', id: linkedTokenId, patch: { imageUrl: linkedPortrait } });
+    }
+  }, [linkedTokenId, linkedName, linkedPortrait, dispatch]);
+
   if (!scene) return null;
 
   if (!token) {
@@ -46,7 +74,33 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
 
   const isGM = can(role, 'token.deleteAny');
   const canEdit = isGM || !token.owner || token.owner === self.id;
-  const patch = (p: Partial<Token>) => dispatch({ kind: 'token.update', id: token.id, patch: p });
+  const patch = (p: Partial<Token>) => {
+    dispatch({ kind: 'token.update', id: token.id, patch: p });
+
+    // Mirror name/portrait edits onto the linked character sheet. The local
+    // `characters` list is updated too, otherwise the effect above would see
+    // the stale sheet name and immediately undo this edit.
+    if (!token.characterId) return;
+    if (p.name === undefined && p.imageUrl === undefined) return;
+
+    const patchData: { name?: string; portraitUrl?: string | null } = {};
+    const localPatch: Partial<import('../api').Character> = {};
+    if (p.name !== undefined) {
+      patchData.name = p.name;
+      localPatch.name = p.name;
+    }
+    if (p.imageUrl !== undefined) {
+      patchData.portraitUrl = p.imageUrl;
+      localPatch.portraitUrl = p.imageUrl;
+    }
+
+    setCharacters(
+      characters.map((c) =>
+        c.id === token.characterId ? { ...c, ...localPatch } : c,
+      ),
+    );
+    api.patch(`/characters/${token.characterId}`, patchData).catch(() => {});
+  };
 
   const toggleCondition = (c: string) => {
     const has = token.conditions.includes(c);
@@ -204,6 +258,24 @@ export default function Inspector({ selectedId, role }: { selectedId: string | n
             </select>
             <span className="hint">
               Cada jugador controla los tokens que tenga asignados.
+            </span>
+          </div>
+
+          <div className="field">
+            <label>Vincular a ficha de personaje</label>
+            <select
+              value={token.characterId || ''}
+              onChange={(e) => patch({ characterId: e.target.value || null })}
+            >
+              <option value="">Sin vincular</option>
+              {characters.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <span className="hint">
+              Al vincular, el token y la ficha comparten nombre, imagen y datos.
             </span>
           </div>
 

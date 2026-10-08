@@ -105,6 +105,16 @@ function Table() {
     localStorage.setItem('vtt.drawColor', color);
   }, [color]);
 
+  // Keep the account id (and display name) on `self` in sync with the session.
+  // Tokens created afterwards record `userId`, which survives reconnects.
+  useEffect(() => {
+    const cur = useStore.getState().self;
+    const next: Partial<typeof cur> = { userId: user?.id ?? null };
+    if (user?.displayName) next.name = user.displayName;
+    if (cur.userId === next.userId && (!next.name || cur.name === next.name)) return;
+    useStore.setState({ self: { ...cur, ...next } });
+  }, [user?.id, user?.displayName]);
+
   useEffect(() => {
     // Identity (name/color) can be restored; the ROLE is assigned by the server.
     const name = localStorage.getItem('vtt.name');
@@ -174,6 +184,8 @@ function Table() {
         locked: false,
         conditions: [],
         owner: role === 'player' ? self.id : null,
+        userId: self.userId,
+        characterId: null,
       },
     });
     useStore.getState().logEvent({ kind: 'token.add', text: `${self.name} añadió un token` });

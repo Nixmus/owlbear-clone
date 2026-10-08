@@ -126,7 +126,7 @@ function merge(target, patch) {
   return target;
 }
 
-function applyAction(state, action, role = 'player') {
+function applyAction(state, action, role = 'player', actorUserId = null) {
   if (!action || typeof action !== 'object') return false;
   const isGM = role === 'gm';
   switch (action.kind) {
@@ -160,14 +160,20 @@ function applyAction(state, action, role = 'player') {
       return false;
     case 'token.add':
       if (!action.token?.id) return false;
-      if (!state.tokens.some((t) => t.id === action.token.id)) state.tokens.push(action.token);
+      if (state.tokens.some((t) => t.id === action.token.id)) return false;
+      // A player may only stamp tokens with their own account id, never someone else's.
+      if (!isGM) action.token.userId = actorUserId || null;
+      if (action.token.owner === undefined) action.token.owner = null;
+      if (action.token.characterId === undefined) action.token.characterId = null;
+      if (!Array.isArray(action.token.conditions)) action.token.conditions = [];
+      state.tokens.push(action.token);
       return true;
     case 'token.update': {
       const token = state.tokens.find((t) => t.id === action.id);
       if (!token) return false;
-      // Players may not hide/lock tokens nor change ownership.
+      // Players may not hide/lock tokens, nor change ownership/identity fields.
       if (!isGM) {
-        const forbidden = ['hidden', 'locked', 'owner'];
+        const forbidden = ['hidden', 'locked', 'owner', 'userId'];
         for (const k of forbidden) if (k in (action.patch || {})) delete action.patch[k];
       }
       merge(token, action.patch);
@@ -355,7 +361,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'action') {
       const player = players.get(ws.roomId)?.get(ws.clientId);
       const role = player?.role === 'gm' ? 'gm' : 'player';
-      if (applyAction(entry.state, msg.action, role)) {
+      if (applyAction(entry.state, msg.action, role, ws.userId)) {
         persist(ws.roomId);
         broadcast(ws.roomId, { type: 'action', action: msg.action, from: ws.clientId });
       }

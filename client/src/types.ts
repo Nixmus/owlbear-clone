@@ -24,7 +24,9 @@ export interface Token {
   hidden: boolean;
   locked: boolean;
   conditions: string[];
-  owner: string | null;
+  owner: string | null; // clientId of the controlling player
+  userId: string | null; // userId of the owning player (persists across sessions)
+  characterId: string | null; // linked character sheet
 }
 
 export type DrawingKind = 'pen' | 'line' | 'rect' | 'circle';

@@ -11,7 +11,8 @@ import { nanoid } from './util';
 import { getToken } from './api';
 
 export interface Presence {
-  id: string;
+  id: string; // clientId, only valid for the current session
+  userId: string | null; // account id, persists across sessions
   name: string;
   color: string;
   role: 'gm' | 'player';
@@ -156,7 +157,7 @@ export const useStore = create<Store>((set, get) => ({
   status: 'disconnected',
   roomId: new URLSearchParams(location.search).get('room') || nanoid(6),
   clientId: '',
-  self: { id: '', name: 'Player', color: '#7dd3fc', role: 'player' },
+  self: { id: '', userId: null, name: 'Player', color: '#7dd3fc', role: 'player' },
   players: [],
   state: emptyState('local'),
   characters: [],
@@ -361,6 +362,8 @@ export function makeToken(sceneId: string, patch: Partial<Token> = {}): Token {
     locked: false,
     conditions: [],
     owner: null,
+    userId: null,
+    characterId: null,
     ...patch,
   };
 }

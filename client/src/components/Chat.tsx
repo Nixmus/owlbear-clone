@@ -62,16 +62,46 @@ export default function Chat() {
         return typeof kw === 'string' && kw.toLowerCase() === keyword.toLowerCase();
       });
       if (character) {
-        dispatch({
-          kind: 'chat.add',
-          message: {
-            id: nanoid(),
-            author: character.name,
-            color: self.color,
-            text: message,
-            ts: Date.now(),
-          },
-        });
+        // Check if the message is a dice command
+        const diceMatch = message.match(/^\/(?:r|roll)\s+(.+)$/i);
+        if (diceMatch) {
+          const result = rollDice(diceMatch[1]);
+          if (result) {
+            dispatch({
+              kind: 'chat.add',
+              message: {
+                id: nanoid(),
+                author: character.name,
+                color: self.color,
+                text: `🎲 ${result.formula} = ${result.total}  ${result.breakdown}`,
+                ts: Date.now(),
+              },
+            });
+          } else {
+            dispatch({
+              kind: 'chat.add',
+              message: {
+                id: nanoid(),
+                author: 'System',
+                color: '#fbbf24',
+                text: `Invalid dice expression: "${diceMatch[1]}". Try /r 2d6+3`,
+                ts: Date.now(),
+                system: true,
+              },
+            });
+          }
+        } else {
+          dispatch({
+            kind: 'chat.add',
+            message: {
+              id: nanoid(),
+              author: character.name,
+              color: self.color,
+              text: message,
+              ts: Date.now(),
+            },
+          });
+        }
         return;
       }
     }
