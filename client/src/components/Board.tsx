@@ -131,6 +131,9 @@ export default function Board({
   const [showMap, setShowMap] = useState(true);
   const lastCursorSent = useRef(0);
 
+  // Declared before the selectors below, which depend on it.
+  const isGM = self.role === 'gm';
+
   const sceneTokens = useMemo(() => {
     const inScene = state.tokens.filter((t) => t.sceneId === scene?.id);
     // With lighting on and "own tokens only" enabled, players see just their
@@ -199,7 +202,6 @@ export default function Board({
   // is released, so every player sees the same hole regardless of their zoom.
   const eraserRadius = 24 / (viewport.scale || 1) + strokeWidth;
 
-  const isGM = self.role === 'gm';
   const role = (self.role as Role) || 'player';
   const selected = sceneTokens.find((t) => t.id === selectedId) || null;
 

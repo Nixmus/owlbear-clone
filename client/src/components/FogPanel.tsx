@@ -1,5 +1,5 @@
 import { useStore } from '../store';
-import Icon from '../Icon';
+import Icon from './Icon';
 import { can, type Role } from '../permissions';
 
 interface Props {
