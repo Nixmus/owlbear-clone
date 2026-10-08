@@ -1359,6 +1359,110 @@ textarea {
   color: var(--danger);
 }
 
+/* ---------- Pings & focus ---------- */
+.ping {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 30;
+}
+.ping .ping-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 3px solid currentColor;
+  transform: translate(-50%, -50%);
+  animation: ping-pulse 1.6s ease-out forwards;
+}
+.ping .ping-label {
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translate(-50%, -100%);
+  background: #000c;
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+@keyframes ping-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.6);
+    opacity: 0;
+  }
+}
+
+.ping-wheel-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+}
+.ping-wheel {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 8px;
+  background: #000d;
+  border: 1px solid var(--border);
+  padding: 8px;
+  border-radius: 999px;
+  box-shadow: 0 10px 30px #000a;
+}
+.ping-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 64px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 11px;
+}
+.ping-option:hover:not(:disabled) {
+  background: var(--panel-3);
+  border-color: var(--accent);
+}
+.ping-option:disabled {
+  opacity: 0.4;
+}
+.ping-option-icon {
+  font-size: 18px;
+  font-weight: 700;
+}
+.ping-cooldown {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+
+.preview-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  background: #fbbf2422;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
 /* ================================================================== */
 /* Mobile / touch adaptations                                         */
 /* ================================================================== */

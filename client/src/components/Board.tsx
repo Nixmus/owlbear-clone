@@ -13,6 +13,7 @@ interface Props {
   strokeWidth: number;
   fogOccludes: boolean;
   brushSize: number;
+  gmFogTransparent: boolean;
 }
 
 type Drag =
@@ -26,17 +27,22 @@ type Drag =
   | { type: 'marquee' }
   | null;
 
-export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize }: Props) {
+export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize, gmFogTransparent }: Props) {
   const boardRef = useRef<HTMLDivElement>(null);
   const { viewport, setViewport, screenToWorld, centerOn, fit } = useViewport(boardRef);
 
   const state = useStore((s) => s.state);
   const self = useStore((s) => s.self);
   const cursors = useStore((s) => s.cursors);
+  const pings = useStore((s) => s.pings);
+  const previewSceneId = useStore((s) => s.previewSceneId);
   const dispatch = useStore((s) => s.dispatch);
   const send = useStore((s) => s.send);
 
-  const scene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
+  // The GM can preview a non-active scene locally without changing it for others.
+  const activeScene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
+  const scene =
+    (previewSceneId && state.scenes.find((s) => s.id === previewSceneId)) || activeScene;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
@@ -76,6 +82,47 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
     if (scene) fit(scene.width, scene.height);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene?.id]);
+
+  /* ---------------- focus requests (move camera) ---------------- */
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const d = (e as CustomEvent<{ x: number; y: number; sceneId: string }>).detail;
+      if (!d || d.sceneId !== scene?.id) return;
+      centerOn(d.x, d.y);
+    };
+    window.addEventListener('vtt:focus', onFocus);
+    return () => window.removeEventListener('vtt:focus', onFocus);
+  }, [scene?.id, centerOn]);
+
+  /* ---------------- ping wheel state ---------------- */
+  const [wheel, setWheel] = useState<{ screenX: number; screenY: number; worldX: number; worldY: number } | null>(null);
+  const [pingCooldownUntil, setPingCooldownUntil] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+
+  function sendPing(kind: 'ping' | 'focus') {
+    if (!wheel || !scene) return;
+    if (!isGM && Date.now() < pingCooldownUntil) return;
+    send({
+      type: 'ping',
+      x: wheel.worldX,
+      y: wheel.worldY,
+      sceneId: scene.id,
+      kind,
+    });
+    // Show it locally too
+    useStore.getState().addPing(self.id, {
+      x: wheel.worldX,
+      y: wheel.worldY,
+      sceneId: scene.id,
+      kind,
+    });
+    if (!isGM) setPingCooldownUntil(Date.now() + 5000);
+    setWheel(null);
+  }
 
   /* ---------------- keyboard ---------------- */
   useEffect(() => {
@@ -169,6 +216,19 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         // erase while dragging too
         eraseAt(w);
         setDrag({ type: 'erase', current: w });
+        break;
+      }
+      case 'ping': {
+        // open the radial ping wheel at this point
+        const rect = boardRef.current?.getBoundingClientRect();
+        if (rect) {
+          setWheel({
+            screenX: e.clientX - rect.left,
+            screenY: e.clientY - rect.top,
+            worldX: w.x,
+            worldY: w.y,
+          });
+        }
         break;
       }
       default:
@@ -461,7 +521,13 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
 
         {/* Fog of war */}
         {fogActive && (
-          <FogLayer scene={scene} shapes={sceneFog} draft={draftFog} fogOccludes={fogOccludes} />
+          <FogLayer
+            scene={scene}
+            shapes={sceneFog}
+            draft={draftFog}
+            fogOccludes={fogOccludes}
+            seeThrough={isGM && gmFogTransparent}
+          />
         )}
 
         {/* Selection resize handle */}
@@ -497,6 +563,21 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
         );
       })}
 
+      {/* Pings */}
+      {Object.entries(pings).map(([id, p]) => {
+        if (p.sceneId !== scene.id) return null;
+        const age = Date.now() - p.ts;
+        if (age > 2000) return null;
+        const sx = p.x * viewport.scale + viewport.x;
+        const sy = p.y * viewport.scale + viewport.y;
+        return (
+          <div key={id} className="ping" style={{ left: sx, top: sy, color: p.color }}>
+            <span className="ping-ring" />
+            <span className="ping-label">{p.kind === 'focus' ? 'Enfocar: ' : ''}{p.name}</span>
+          </div>
+        );
+      })}
+
       <div className="bottom-left">
         <div className="panel">
           <button className="btn sm" onClick={() => centerOn(scene.width / 2, scene.height / 2)}>
@@ -525,11 +606,70 @@ export default function Board({ tool, color, strokeWidth, fogOccludes, brushSize
       {drag?.type === 'ruler' && ruler && (
         <RulerHud ruler={ruler} gridSize={scene.gridSize} />
       )}
+
+      {wheel && (
+        <PingWheel
+          x={wheel.screenX}
+          y={wheel.screenY}
+          isGM={isGM}
+          cooldownMs={Math.max(0, pingCooldownUntil - now)}
+          onPing={() => sendPing('ping')}
+          onFocus={() => sendPing('focus')}
+          onClose={() => setWheel(null)}
+        />
+      )}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
+
+/** Radial menu (like League of Legends) opened where the user pressed. */
+function PingWheel({
+  x,
+  y,
+  isGM,
+  cooldownMs,
+  onPing,
+  onFocus,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  isGM: boolean;
+  cooldownMs: number;
+  onPing: () => void;
+  onFocus: () => void;
+  onClose: () => void;
+}) {
+  const locked = !isGM && cooldownMs > 0;
+  return (
+    <div className="ping-wheel-backdrop" onClick={onClose}>
+      <div
+        className="ping-wheel"
+        style={{ left: x, top: y }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className="ping-option ping-option-ping"
+          disabled={locked}
+          onClick={onPing}
+          title="Señalar"
+        >
+          <span className="ping-option-icon">◎</span>
+          <span>Señalar</span>
+        </button>
+        <button className="ping-option ping-option-focus" onClick={onFocus} title="Enfocar a todos">
+          <span className="ping-option-icon">➤</span>
+          <span>Enfocar</span>
+        </button>
+        {locked && (
+          <div className="ping-cooldown">{Math.ceil(cooldownMs / 1000)}s</div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** True if the point `p` is within `r` of the drawing's geometry. */
 export function drawingHit(d: Drawing, p: Vec, r: number): boolean {
@@ -645,15 +785,20 @@ function FogLayer({
   shapes,
   draft,
   fogOccludes,
+  seeThrough,
 }: {
   scene: { id: string; width: number; height: number };
   shapes: FogShape[];
   draft: { a: Vec; b: Vec; mode: 'reveal' | 'hide' } | null;
   fogOccludes: boolean;
+  seeThrough?: boolean;
 }) {
   const id = `fogmask-${scene.id}`;
   const rects = shapes.map((s) => ({ ...s, r: pointsToRect(s.points) })).filter((s) => s.r);
   const draftRect = draft ? pointsToRect([draft.a.x, draft.a.y, draft.b.x, draft.b.y]) ?? dotRect(draft.a) : null;
+
+  // The GM can reveal the map "under" the fog (see-through) to prepare scenes.
+  const fill = seeThrough ? '#0b0b0f2e' : fogOccludes ? '#0b0b0f' : '#0b0b0fbb';
 
   return (
     <svg className="grid-svg" width={scene.width} height={scene.height} style={{ pointerEvents: 'none' }}>
@@ -678,14 +823,7 @@ function FogLayer({
           )}
         </mask>
       </defs>
-      <rect
-        x={0}
-        y={0}
-        width={scene.width}
-        height={scene.height}
-        fill={fogOccludes ? '#0b0b0f' : '#0b0b0fbb'}
-        mask={`url(#${id})`}
-      />
+      <rect x={0} y={0} width={scene.width} height={scene.height} fill={fill} mask={`url(#${id})`} />
     </svg>
   );
 }

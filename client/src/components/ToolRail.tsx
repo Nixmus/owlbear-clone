@@ -19,6 +19,7 @@ interface Props {
 const TOOLS: { id: Tool; icon: IconName; tip: string }[] = [
   { id: 'select', icon: 'select', tip: 'Seleccionar / Mover' },
   { id: 'pan', icon: 'pan', tip: 'Desplazar' },
+  { id: 'ping', icon: 'pin', tip: 'Señal / Enfocar' },
   { id: 'ruler', icon: 'ruler', tip: 'Medir' },
 ];
 

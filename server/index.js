@@ -151,6 +151,7 @@ function applyAction(state, action, role = 'player') {
       state.fog = state.fog.filter((f) => f.sceneId !== action.id);
       return true;
     case 'scene.activate':
+      if (!isGM) return false;
       if (state.scenes.some((s) => s.id === action.id)) {
         state.activeSceneId = action.id;
         return true;
@@ -338,6 +339,22 @@ wss.on('connection', (ws) => {
         persist(ws.roomId);
         broadcast(ws.roomId, { type: 'action', action: msg.action, from: ws.clientId });
       }
+      return;
+    }
+
+    // Focus / ping on the map (ephemeral, broadcast only).
+    if (msg.type === 'ping') {
+      const me = players.get(ws.roomId)?.get(ws.clientId);
+      broadcast(ws.roomId, {
+        type: 'ping',
+        from: ws.clientId,
+        x: msg.x,
+        y: msg.y,
+        sceneId: msg.sceneId,
+        kind: msg.kind === 'focus' ? 'focus' : 'ping',
+        color: me?.color || '#ffffff',
+        name: me?.name || '',
+      });
       return;
     }
 

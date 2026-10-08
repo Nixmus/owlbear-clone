@@ -68,6 +68,18 @@ const paths: Record<string, ReactNode> = {
   back: <path d="M19 12H5M12 19l-7-7 7-7" />,
   forward: <path d="M5 12h14M12 5l7 7-7 7" />,
   eraser: <path d="M20 20H8.5L3.7 15.2a2 2 0 0 1 0-2.8l7-7a2 2 0 0 1 2.8 0l6.3 6.3a2 2 0 0 1 0 2.8L11 20" />,
+  pin: (
+    <>
+      <path d="M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z" />
+      <circle cx="12" cy="11" r="2" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
   logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
 };
 

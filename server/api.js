@@ -252,6 +252,51 @@ router.get('/overview', auth, (req, res) => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Characters across all campaigns (global gallery)
+ * ------------------------------------------------------------------ */
+
+router.get('/characters', auth, (req, res) => {
+  const uid = req.user.id;
+  const { ownership = 'all', kind = 'all', campaignId = '' } = req.query;
+
+  // All campaigns the user takes part in (owner or member).
+  const rows = db
+    .prepare(
+      `SELECT ch.*, c.name AS campaign_name,
+              (ch.owner_id = ?) AS is_mine
+       FROM characters ch
+       LEFT JOIN campaigns c ON c.id = ch.campaign_id
+       WHERE ch.campaign_id IS NULL
+          OR ch.campaign_id IN (
+               SELECT id FROM campaigns WHERE owner_id = ?
+               UNION
+               SELECT campaign_id FROM campaign_members WHERE user_id = ?
+             )`,
+    )
+    .all(uid, uid, uid);
+
+  let list = rows.map((c) => ({
+    id: c.id,
+    campaignId: c.campaign_id,
+    campaignName: c.campaign_name,
+    ownerId: c.owner_id,
+    isMine: !!c.is_mine,
+    name: c.name,
+    kind: c.kind,
+    data: safeJson(c.data),
+    portraitUrl: c.portrait_url,
+    updatedAt: c.updated_at,
+  }));
+
+  if (ownership === 'mine') list = list.filter((c) => c.isMine);
+  else if (ownership === 'others') list = list.filter((c) => !c.isMine);
+  if (kind !== 'all') list = list.filter((c) => c.kind === kind);
+  if (campaignId) list = list.filter((c) => c.campaignId === campaignId);
+
+  res.json({ characters: list });
+});
+
+/* ------------------------------------------------------------------ *
  * Campaigns
  * ------------------------------------------------------------------ */
 
@@ -345,6 +390,23 @@ router.delete('/campaigns/:id', auth, (req, res) => {
   if (campaign.owner_id !== req.user.id) return res.status(403).json({ error: 'Only the owner can delete' });
   db.prepare('DELETE FROM campaigns WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// Join a campaign using its invite code (the campaign id).
+router.post('/campaigns/join', auth, (req, res) => {
+  const code = String(body(req).code || '').trim();
+  if (!code) return res.status(400).json({ error: 'Introduce un código de partida' });
+  const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(code);
+  if (!campaign) return res.status(404).json({ error: 'No existe ninguna campaña con ese código' });
+  if (campaign.owner_id === req.user.id) {
+    return res.json({ ok: true, campaignId: campaign.id, alreadyMember: true, role: 'owner' });
+  }
+  db.prepare(
+    `INSERT INTO campaign_members (campaign_id, user_id, role, joined_at)
+     VALUES (?, ?, 'player', ?)
+     ON CONFLICT(campaign_id, user_id) DO NOTHING`,
+  ).run(campaign.id, req.user.id, now());
+  res.json({ ok: true, campaignId: campaign.id });
 });
 
 /* ---- members ---- */

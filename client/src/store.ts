@@ -27,6 +27,8 @@ interface Store {
   players: Player[];
   state: RoomState;
   cursors: Record<string, { x: number; y: number; sceneId: string; color: string; name: string; ts: number }>;
+  pings: Record<string, { x: number; y: number; sceneId: string; color: string; name: string; kind: string; ts: number }>;
+  previewSceneId: string | null;
   lastActionAt: number;
 
   send: (msg: unknown) => void;
@@ -37,6 +39,8 @@ interface Store {
   setState: (state: RoomState) => void;
   setStatus: (status: Status) => void;
   setCursor: (from: string, cursor: { x: number; y: number; sceneId: string }) => void;
+  addPing: (from: string, ping: { x: number; y: number; sceneId: string; kind: string }) => void;
+  setPreviewScene: (id: string | null) => void;
   setRole: (targetId: string, role: 'gm' | 'player') => void;
 }
 
@@ -144,6 +148,8 @@ export const useStore = create<Store>((set, get) => ({
   players: [],
   state: emptyState('local'),
   cursors: {},
+  pings: {},
+  previewSceneId: null,
   lastActionAt: 0,
 
   setStatus: (status) => set({ status }),
@@ -159,6 +165,8 @@ export const useStore = create<Store>((set, get) => ({
   setRole: (targetId, role) => {
     get().send({ type: 'role.set', targetId, role });
   },
+
+  setPreviewScene: (id) => set({ previewSceneId: id }),
 
   send: (msg) => {
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -190,6 +198,26 @@ export const useStore = create<Store>((set, get) => ({
         },
       },
     }));
+  },
+
+  addPing: (from, ping) => {
+    const players = get().players;
+    const p = players.find((x) => x.id === from);
+    const item = {
+      ...ping,
+      color: p?.color || '#ffffff',
+      name: p?.name || '',
+      ts: Date.now(),
+    };
+    set((s) => {
+      const pings = { ...s.pings, [from]: item };
+      // also shift the local viewport onto focus pings
+      return { pings };
+    });
+    // Focus requests move everyone's camera.
+    if (ping.kind === 'focus') {
+      window.dispatchEvent(new CustomEvent('vtt:focus', { detail: ping }));
+    }
   },
 
   connect: (roomId) => {
@@ -261,6 +289,14 @@ export const useStore = create<Store>((set, get) => ({
         }
         case 'cursor':
           get().setCursor(msg.from, { x: msg.x, y: msg.y, sceneId: msg.sceneId });
+          break;
+        case 'ping':
+          get().addPing(msg.from, {
+            x: msg.x,
+            y: msg.y,
+            sceneId: msg.sceneId,
+            kind: msg.kind,
+          });
           break;
         default:
           break;

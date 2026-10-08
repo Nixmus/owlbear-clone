@@ -99,7 +99,8 @@ export type Tool =
   | 'line'
   | 'rect'
   | 'circle'
-  | 'eraser';
+  | 'eraser'
+  | 'ping';
 
 export interface Viewport {
   x: number;

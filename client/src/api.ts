@@ -107,6 +107,19 @@ export interface Character {
   updatedAt: number;
 }
 
+export interface GlobalCharacter {
+  id: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  ownerId: string;
+  isMine: boolean;
+  name: string;
+  kind: 'pc' | 'npc' | 'monster';
+  data: Record<string, unknown>;
+  portraitUrl: string | null;
+  updatedAt: number;
+}
+
 export interface Asset {
   id: string;
   campaignId: string;

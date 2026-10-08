@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../auth';
 import { api, assetUrl, type Campaign, type Overview } from '../api';
 import CampaignView from './CampaignView';
+import CharactersGallery from './hub/CharactersGallery';
 import Icon, { type IconName } from './Icon';
 import Brand from './Brand';
 
@@ -200,7 +201,7 @@ function AuthScreen() {
 
 /* ------------------------------------------------------------------ */
 
-type View = 'overview' | 'campaigns' | 'profile';
+type View = 'overview' | 'campaigns' | 'characters' | 'profile';
 
 function HubShell({ onOpen }: { onOpen: (id: string) => void }) {
   // Simple in-app history so back/forward/home work between views.
@@ -222,7 +223,8 @@ function HubShell({ onOpen }: { onOpen: (id: string) => void }) {
   const nav: { id: View; label: string; icon: IconName }[] = [
     { id: 'overview', label: 'Resumen', icon: 'overview' },
     { id: 'campaigns', label: 'Campañas', icon: 'map' },
-    { id: 'profile', label: 'Mi perfil', icon: 'user' },
+    { id: 'characters', label: 'Personajes', icon: 'user' },
+    { id: 'profile', label: 'Mi perfil', icon: 'crown' },
   ];
 
   return (
@@ -271,6 +273,7 @@ function HubShell({ onOpen }: { onOpen: (id: string) => void }) {
 
         {view === 'overview' && <Overview onOpen={onOpen} onSeeCampaigns={() => go('campaigns')} />}
         {view === 'campaigns' && <CampaignList onOpen={onOpen} />}
+        {view === 'characters' && <CharactersGallery onOpenCampaign={onOpen} />}
         {view === 'profile' && <ProfilePanel />}
       </main>
     </div>
@@ -506,6 +509,9 @@ function ProfilePanel() {
 function CampaignList({ onOpen }: { onOpen: (id: string) => void }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [showNew, setShowNew] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
+  const [joinMsg, setJoinMsg] = useState('');
   const [form, setForm] = useState({ name: '', description: '', system: 'Genérico' });
 
   useEffect(() => {
@@ -527,14 +533,53 @@ function CampaignList({ onOpen }: { onOpen: (id: string) => void }) {
     onOpen(id);
   }
 
+  async function join() {
+    setJoinMsg('');
+    try {
+      const res = await api.post<{ campaignId: string }>('/campaigns/join', { code: joinCode.trim() });
+      setJoinCode('');
+      setShowJoin(false);
+      await load();
+      onOpen(res.campaignId);
+    } catch (e) {
+      setJoinMsg((e as Error).message);
+    }
+  }
+
   return (
     <div className="hub-view">
       <div className="row spread" style={{ marginBottom: 14 }}>
         <h1 style={{ margin: 0 }}>Campañas</h1>
-        <button className="btn primary" onClick={() => setShowNew((v) => !v)}>
-          <Icon name="plus" size={14} /> Nueva campaña
-        </button>
+        <div className="row" style={{ flex: 'none', gap: 8 }}>
+          <button className="btn" onClick={() => setShowJoin((v) => !v)}>
+            <Icon name="link" size={14} /> Unirse por código
+          </button>
+          <button className="btn primary" onClick={() => setShowNew((v) => !v)}>
+            <Icon name="plus" size={14} /> Nueva campaña
+          </button>
+        </div>
       </div>
+
+      {showJoin && (
+        <div className="hub-card" style={{ marginBottom: 16 }}>
+          <h3>Unirse a una campaña</h3>
+          <p className="muted">
+            Pide el código de partida al director. Es el mismo que aparece en la mesa (la sala).
+          </p>
+          <div className="create-row">
+            <input
+              placeholder="Código de partida"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && join()}
+            />
+            <button className="btn primary" onClick={join} disabled={!joinCode.trim()}>
+              Unirme
+            </button>
+          </div>
+          {joinMsg && <p className="error">{joinMsg}</p>}
+        </div>
+      )}
 
       {showNew && (
         <div className="hub-card" style={{ marginBottom: 16 }}>

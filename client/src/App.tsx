@@ -86,6 +86,7 @@ function Table() {
   const [strokeWidth, setStrokeWidth] = useState(4);
   const [brushSize, setBrushSize] = useState(90);
   const [fogOccludes, setFogOccludes] = useState(true);
+  const [gmFogTransparent, setGmFogTransparent] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUsers, setShowUsers] = useState(false);
 
@@ -193,6 +194,7 @@ function Table() {
         strokeWidth={strokeWidth}
         fogOccludes={fogOccludes}
         brushSize={brushSize}
+        gmFogTransparent={gmFogTransparent}
       />
 
       <div className="side">
@@ -206,6 +208,8 @@ function Table() {
           setBrushSize={setBrushSize}
           fogOccludes={fogOccludes}
           setFogOccludes={setFogOccludes}
+          gmFogTransparent={gmFogTransparent}
+          setGmFogTransparent={setGmFogTransparent}
         />
         <Inspector selectedId={selectedId} role={role} />
         <Chat />

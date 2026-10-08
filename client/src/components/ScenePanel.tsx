@@ -24,11 +24,15 @@ interface Props {
   setBrushSize: (n: number) => void;
   fogOccludes: boolean;
   setFogOccludes: (b: boolean) => void;
+  gmFogTransparent: boolean;
+  setGmFogTransparent: (b: boolean) => void;
 }
 
 export default function ScenePanel(props: Props) {
   const state = useStore((s) => s.state);
   const dispatch = useStore((s) => s.dispatch);
+  const previewSceneId = useStore((s) => s.previewSceneId);
+  const setPreviewScene = useStore((s) => s.setPreviewScene);
   const mapInput = useRef<HTMLInputElement>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -36,7 +40,10 @@ export default function ScenePanel(props: Props) {
   if (!scene) return null;
   const canManage = can(props.role, 'scene.manage');
 
-  const patch = (p: Partial<Scene>) => dispatch({ kind: 'scene.update', id: scene.id, patch: p });
+  // When previewing, edit the previewed scene (GM only, local view).
+  const editScene = (previewSceneId && state.scenes.find((s) => s.id === previewSceneId)) || scene;
+
+  const patch = (p: Partial<Scene>) => dispatch({ kind: 'scene.update', id: editScene.id, patch: p });
 
   const onMap = async (file?: File) => {
     if (!file) return;
@@ -78,12 +85,21 @@ export default function ScenePanel(props: Props) {
         <div className="panel-body">
           {canManage ? (
             <>
+              {previewSceneId && (
+                <div className="preview-banner">
+                  <span>
+                    Vista previa de <b>{editScene.name}</b> (solo tú la ves)
+                  </span>
+                  <button className="btn sm" onClick={() => setPreviewScene(null)}>
+                    Salir
+                  </button>
+                </div>
+              )}
               {state.scenes.map((s) => (
                 <div
                   key={s.id}
-                  className={`scene-item ${s.id === scene.id ? 'active' : ''}`}
-                  onClick={() => dispatch({ kind: 'scene.activate', id: s.id })}
-                  title="Cambiar a esta escena"
+                  className={`scene-item ${s.id === editScene.id ? 'active' : ''}`}
+                  title="Clic para previsualizar · botón para activar"
                 >
                   {s.mapUrl ? (
                     <img className="scene-thumb" src={s.mapUrl} alt="" />
@@ -97,6 +113,28 @@ export default function ScenePanel(props: Props) {
                       dispatch({ kind: 'scene.update', id: s.id, patch: { name: e.target.value } })
                     }
                   />
+                  <button
+                    className="icon-btn"
+                    title="Previsualizar (solo para ti)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewScene(s.id);
+                    }}
+                  >
+                    <Icon name="eye" size={14} />
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title={s.id === state.activeSceneId ? 'Escena activa' : 'Activar para todos'}
+                    disabled={s.id === state.activeSceneId}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch({ kind: 'scene.activate', id: s.id });
+                      setPreviewScene(null);
+                    }}
+                  >
+                    <Icon name="check" size={14} />
+                  </button>
                   {state.scenes.length > 1 && (
                     <button
                       className="icon-btn danger"
@@ -105,6 +143,7 @@ export default function ScenePanel(props: Props) {
                         e.stopPropagation();
                         if (confirm(`¿Eliminar la escena "${s.name}"?`)) {
                           dispatch({ kind: 'scene.remove', id: s.id });
+                          if (previewSceneId === s.id) setPreviewScene(null);
                         }
                       }}
                     >
@@ -120,12 +159,12 @@ export default function ScenePanel(props: Props) {
               <div className="tool-divider" />
 
               <div className="field">
-                <label>Mapa de fondo</label>
+                <label>Mapa de fondo {previewSceneId ? '(editando vista previa)' : ''}</label>
                 <div className="row">
                   <button className="btn" onClick={() => mapInput.current?.click()}>
                     <Icon name="image" size={14} /> Subir mapa
                   </button>
-                  {scene.mapUrl && (
+                  {editScene.mapUrl && (
                     <button className="btn danger" onClick={() => patch({ mapUrl: null })}>
                       Quitar
                     </button>
@@ -145,7 +184,7 @@ export default function ScenePanel(props: Props) {
                 <div className="field">
                   <label>Tipo de rejilla</label>
                   <select
-                    value={scene.gridType}
+                    value={editScene.gridType}
                     onChange={(e) => patch({ gridType: e.target.value as Scene['gridType'] })}
                   >
                     <option value="square">Cuadrada</option>
@@ -157,7 +196,7 @@ export default function ScenePanel(props: Props) {
                   <label>Tamaño (px)</label>
                   <input
                     type="number"
-                    value={scene.gridSize}
+                    value={editScene.gridSize}
                     min={10}
                     max={300}
                     onChange={(e) => patch({ gridSize: clampNum(+e.target.value, 10, 300) })}
@@ -170,7 +209,7 @@ export default function ScenePanel(props: Props) {
                   <label>Color de fondo</label>
                   <input
                     type="color"
-                    value={scene.backgroundColor}
+                    value={editScene.backgroundColor}
                     onChange={(e) => patch({ backgroundColor: e.target.value })}
                   />
                 </div>
@@ -178,7 +217,7 @@ export default function ScenePanel(props: Props) {
                   <label>Color de rejilla</label>
                   <input
                     type="color"
-                    value={rgbToHex(scene.gridColor)}
+                    value={rgbToHex(editScene.gridColor)}
                     onChange={(e) => patch({ gridColor: e.target.value + '55' })}
                   />
                 </div>
@@ -217,6 +256,14 @@ export default function ScenePanel(props: Props) {
                   onChange={(e) => props.setFogOccludes(e.target.checked)}
                 />
                 Niebla totalmente opaca
+              </label>
+              <label className="row checklist" title="Solo para ti: ves el mapa bajo la niebla sin cambiar lo que ven los jugadores">
+                <input
+                  type="checkbox"
+                  checked={props.gmFogTransparent}
+                  onChange={(e) => props.setGmFogTransparent(e.target.checked)}
+                />
+                Ver bajo la niebla (solo GM)
               </label>
             </>
           ) : (
