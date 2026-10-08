@@ -262,11 +262,7 @@ function Table() {
             <h1>
               <Brand withName={false} /> Conectando…
             </h1>
-            <p className="muted">
-              {status === 'connecting'
-                ? 'Entrando a la mesa con tu perfil.'
-                : 'No se pudo conectar. Comprobando de nuevo…'}
-            </p>
+            <p className="muted">Entrando a la mesa con tu perfil.</p>
           </div>
         </div>
       )}

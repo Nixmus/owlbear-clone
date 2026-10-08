@@ -57,9 +57,10 @@ export default function Chat() {
     const keywordMatch = value.match(/^(\w+):\s*(.+)$/);
     if (keywordMatch) {
       const [, keyword, message] = keywordMatch;
-      const character = characters.find(
-        (c) => c.data?.keyword?.toLowerCase() === keyword.toLowerCase(),
-      );
+      const character = characters.find((c) => {
+        const kw = c.data?.keyword;
+        return typeof kw === 'string' && kw.toLowerCase() === keyword.toLowerCase();
+      });
       if (character) {
         dispatch({
           kind: 'chat.add',
