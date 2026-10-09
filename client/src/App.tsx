@@ -5,6 +5,7 @@ import TopBar from './components/TopBar';
 import ToolRail from './components/ToolRail';
 import ScenePanel from './components/ScenePanel';
 import Inspector from './components/Inspector';
+import SheetViewer from './components/SheetViewer';
 import FogPanel from './components/FogPanel';
 import Chat from './components/Chat';
 import History from './components/History';
@@ -15,7 +16,7 @@ import Brand from './components/Brand';
 import { useStore } from './store';
 import { useAuth } from './auth';
 import { api } from './api';
-import Icon from './components/Icon';
+import Icon, { type IconName } from './components/Icon';
 import type { Tool } from './types';
 import type { Role } from './permissions';
 import { nanoid } from './util';
@@ -77,6 +78,22 @@ export default function App() {
 
 /* ------------------------------------------------------------------ */
 
+type SideTab = 'scene' | 'fog' | 'token' | 'sheet' | 'chat' | 'history';
+
+/**
+ * The side column shows one panel at a time. `sheet` is filtered out at render
+ * time unless a token linked to a character is selected, since there is nothing
+ * for it to show otherwise.
+ */
+const SIDE_TABS = [
+  ['scene', 'Escena', 'map'],
+  ['fog', 'Niebla', 'fog'],
+  ['token', 'Ficha', 'user'],
+  ['sheet', 'Ficha PJ', 'book'],
+  ['chat', 'Chat', 'chat'],
+  ['history', 'Historial', 'history'],
+] as const satisfies readonly (readonly [SideTab, string, IconName])[];
+
 function Table() {
   const status = useStore((s) => s.status);
   const state = useStore((s) => s.state);
@@ -93,6 +110,9 @@ function Table() {
   const [tool, setTool] = usePersistedState<Tool>('vtt.tool', 'select');
   const [color, setColor] = usePersistedState<string>('vtt.drawColor', '#fbbf24');
   const [strokeWidth, setStrokeWidth] = usePersistedState('vtt.strokeWidth', 4);
+  // Eraser diameter in world units. It used to be tied to the brush width,
+  // which made a thick brush erase in a huge circle.
+  const [eraserSize, setEraserSize] = usePersistedState('vtt.eraserSize', 40);
   const [brushSize, setBrushSize] = usePersistedState('vtt.brushSize', 90);
   const [fillEnabled, setFillEnabled] = usePersistedState('vtt.fillEnabled', false);
   const [fillColor, setFillColor] = usePersistedState('vtt.fillColor', '#ffffff33');
@@ -124,7 +144,7 @@ const [blockerKind, setBlockerKind] = usePersistedState<'none' | 'wall' | 'door'
     'vtt.blockerKind',
     'none',
   );
-  const [sideTab, setSideTab] = useState<'scene' | 'fog' | 'token' | 'chat' | 'history'>('chat');
+  const [sideTab, setSideTab] = useState<SideTab>('chat');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUsers, setShowUsers] = useState(false);
   // On phones the side panels sit on top of the map, so they start closed and
@@ -219,6 +239,14 @@ const [blockerKind, setBlockerKind] = usePersistedState<'none' | 'wall' | 'door'
   }, [user]);
 
   const scene = state.scenes.find((s) => s.id === state.activeSceneId) || state.scenes[0];
+  // The character behind the selected token, if any. Drives the extra sheet tab.
+  const linkedCharacterId =
+    state.tokens.find((t) => t.id === selectedId)?.characterId ?? null;
+  // A tab can disappear while it is open (the token gets unlinked or deleted),
+  // which would leave the panel column blank with no way back.
+  useEffect(() => {
+    if (sideTab === 'sheet' && !linkedCharacterId) setSideTab('token');
+  }, [sideTab, linkedCharacterId]);
   const sceneDrawings = useMemo(
     () => state.drawings.filter((d) => d.sceneId === scene?.id),
     [state.drawings, scene?.id],
@@ -306,6 +334,7 @@ const [blockerKind, setBlockerKind] = usePersistedState<'none' | 'wall' | 'door'
         tool={tool}
         color={color}
         strokeWidth={strokeWidth}
+        eraserSize={eraserSize}
         fogOccludes={fogOccludes}
         brushSize={brushSize}
         gmFogTransparent={gmFogTransparent}
@@ -331,25 +360,19 @@ const [blockerKind, setBlockerKind] = usePersistedState<'none' | 'wall' | 'door'
 
       <div className="side">
         <nav className="side-tabs" aria-label="Paneles laterales">
-          {(
-            [
-              ['scene', 'Escena', 'map'],
-              ['fog', 'Niebla', 'fog'],
-              ['token', 'Ficha', 'user'],
-              ['chat', 'Chat', 'chat'],
-              ['history', 'Historial', 'history'],
-            ] as const
-          ).map(([id, label, icon]) => (
-            <button
-              key={id}
-              className={`side-tab ${sideTab === id ? 'active' : ''}`}
-              onClick={() => setSideTab(id)}
-              aria-selected={sideTab === id}
-            >
-              <Icon name={icon} size={14} />
-              <span>{label}</span>
-            </button>
-          ))}
+          {SIDE_TABS.filter(([id]) => id !== 'sheet' || !!linkedCharacterId).map(
+            ([id, label, icon]) => (
+              <button
+                key={id}
+                className={`side-tab ${sideTab === id ? 'active' : ''}`}
+                onClick={() => setSideTab(id)}
+                aria-selected={sideTab === id}
+              >
+                <Icon name={icon} size={14} />
+                <span>{label}</span>
+              </button>
+            ),
+          )}
         </nav>
 
         <div className="side-panels">
@@ -363,6 +386,8 @@ const [blockerKind, setBlockerKind] = usePersistedState<'none' | 'wall' | 'door'
               setColor={setColor}
               strokeWidth={strokeWidth}
               setStrokeWidth={setStrokeWidth}
+              eraserSize={eraserSize}
+              setEraserSize={setEraserSize}
               decalImage={decalImage}
               setDecalImage={setDecalImage}
               decalSize={decalSize}
@@ -399,6 +424,9 @@ const [blockerKind, setBlockerKind] = usePersistedState<'none' | 'wall' | 'door'
 
           <div className="side-panel" hidden={sideTab !== 'token'}>
             <Inspector selectedId={selectedId} role={role} />
+          </div>
+          <div className="side-panel" hidden={sideTab !== 'sheet'}>
+            <SheetViewer characterId={linkedCharacterId} />
           </div>
           <div className="side-panel side-panel-grow" hidden={sideTab !== 'chat'}>
             <Chat />

@@ -25,6 +25,8 @@ interface Props {
   setColor: (c: string) => void;
   strokeWidth: number;
   setStrokeWidth: (n: number) => void;
+  eraserSize: number;
+  setEraserSize: (n: number) => void;
   decalImage: { url: string; w: number; h: number } | null;
   setDecalImage: (v: { url: string; w: number; h: number } | null) => void;
   decalSize: number;
@@ -361,6 +363,18 @@ export default function ScenePanel(props: Props) {
                   value={props.strokeWidth}
                   onChange={(e) => props.setStrokeWidth(+e.target.value)}
                 />
+              </div>
+              <div className="field">
+                <label>Grosor del borrador: {props.eraserSize}</label>
+                <input
+                  type="range"
+                  min={10}
+                  max={300}
+                  step={5}
+                  value={props.eraserSize}
+                  onChange={(e) => props.setEraserSize(+e.target.value)}
+                />
+                <span className="hint">Diámetro en el mapa, independiente del pincel.</span>
               </div>
 
               <label className="row checklist" title="Rellena rectángulos y círculos con el color de abajo">

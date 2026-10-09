@@ -14,6 +14,8 @@ interface Props {
   tool: Tool;
   color: string;
   strokeWidth: number;
+  /** Diameter of the eraser in world units. */
+  eraserSize: number;
   fogOccludes: boolean;
   brushSize: number;
   gmFogTransparent: boolean;
@@ -68,6 +70,7 @@ export default function Board({
   tool,
   color,
   strokeWidth,
+  eraserSize,
   fogOccludes,
   brushSize,
   gmFogTransparent,
@@ -235,10 +238,11 @@ export default function Board({
     [state.fog, scene?.id],
   );
 
-  // Radius of the eraser in world units. The `24 / scale` term keeps a minimum
-  // on-screen size when zoomed out. It is baked into the stroke when the eraser
-  // is released, so every player sees the same hole regardless of their zoom.
-  const eraserRadius = 24 / (viewport.scale || 1) + strokeWidth;
+  // Radius of the eraser in world units. The slider sets its diameter; the
+  // `12 / scale` term is only a floor so it stays grabbable when zoomed out.
+  // It is baked into the stroke when the eraser is released, so every player
+  // sees the same hole regardless of their zoom.
+  const eraserRadius = Math.max(eraserSize / 2, 12 / (viewport.scale || 1));
 
   const role = (self.role as Role) || 'player';
   const selected = sceneTokens.find((t) => t.id === selectedId) || null;

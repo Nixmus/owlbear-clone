@@ -93,6 +93,9 @@ const paths: Record<string, ReactNode> = {
   folderOpen: (
     <path d="M3 7a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v1H3zM3 10h18l-2 8a2 2 0 0 1-2 1.6H6.2A2 2 0 0 1 4.3 18z" />
   ),
+  book: (
+    <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v16H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 1 6.5 18H20v4H6.5A2.5 2.5 0 0 1 4 19.5zM9 6h7M9 10h5" />
+  ),
 };
 
 export type IconName = keyof typeof paths;

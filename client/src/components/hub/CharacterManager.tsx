@@ -12,29 +12,12 @@ import {
 import Icon from '../Icon';
 import SheetTemplateEditor from './SheetTemplateEditor';
 import VisibilityToggle from '../VisibilityToggle';
-
-/**
- * The default sheet, used whenever a character has no template. The attribute
- * keys are lowercase on purpose: existing characters already store
- * `attributes.str` etc, and switching to uppercase would blank their values.
- */
-const BUILTIN_SCHEMA: SheetSchema = {
-  fields: [
-    { key: 'class', label: 'Clase', type: 'text' },
-    { key: 'race', label: 'Raza', type: 'text' },
-    { key: 'level', label: 'Nivel', type: 'number', width: 'tight' },
-    { key: 'hp.current', label: 'PG actuales', type: 'number' },
-    { key: 'hp.max', label: 'PG máximos', type: 'number' },
-    { key: 'ac', label: 'CA', type: 'number', width: 'tight' },
-    { key: 'speed', label: 'Velocidad', type: 'number', width: 'tight' },
-    { key: 'keyword', label: 'Palabra clave (hablar en el chat)', type: 'text' },
-    { key: 'skills', label: 'Habilidades', type: 'textarea' },
-    { key: 'inventory', label: 'Inventario', type: 'textarea' },
-    { key: 'spells', label: 'Conjuros', type: 'textarea' },
-    { key: 'notes', label: 'Notas', type: 'textarea' },
-  ],
-  attributes: ['str', 'dex', 'con', 'int', 'wis', 'cha'],
-};
+import {
+  BUILTIN_SCHEMA,
+  formatModifier as modifier,
+  kindLabel,
+  readPath as getPath,
+} from '../sheetSchema';
 
 export default function CharacterManager({ campaignId }: { campaignId: string }) {
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -456,7 +439,7 @@ function Field({
   data: Record<string, any>;
   onSet: (path: string, value: unknown) => void;
 }) {
-  // getPath always returns string | number, so this is always a valid `value`.
+  // readPath always returns a string, so this is always a valid `value`.
   const raw = getPath(data, field.key);
   // Textareas span the row; normal fields share the grid; tight ones stay narrow.
   const cls =
@@ -475,24 +458,6 @@ function Field({
   );
 }
 
-function kindLabel(kind: string): string {
-  switch (kind) {
-    case 'pc':
-      return 'PJ';
-    case 'npc':
-      return 'PNJ';
-    case 'monster':
-      return 'Monstruo';
-    default:
-      return kind;
-  }
-}
-
-function modifier(score: number) {
-  const m = Math.floor((score - 10) / 2);
-  return m >= 0 ? `+${m}` : `${m}`;
-}
-
 function setPath(obj: Record<string, any>, path: string, value: unknown): Record<string, any> {
   const keys = path.split('.');
   let cur: Record<string, any> = obj;
@@ -502,24 +467,4 @@ function setPath(obj: Record<string, any>, path: string, value: unknown): Record
   }
   cur[keys[keys.length - 1]] = value;
   return obj;
-}
-
-/**
- * Reads a (possibly dotted) key out of the sheet data and normalizes it to
- * something an input can hold. Returning `string | number` rather than
- * `unknown` matters: `unknown ?? ''` narrows to `{}`, which is not assignable
- * to the `value` prop of <input>/<textarea>.
- */
-function getPath(obj: Record<string, any>, path: string): string | number {
-  let cur: any = obj;
-  for (const k of path.split('.')) {
-    if (cur === null || cur === undefined) return '';
-    cur = cur[k];
-  }
-  if (typeof cur === 'number') return cur;
-  if (typeof cur === 'string') return cur;
-  if (cur === null || cur === undefined) return '';
-  // Objects/arrays/booleans are not valid input values; show something sane
-  // rather than handing React an object for `value`.
-  return String(cur);
 }

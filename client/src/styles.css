@@ -1492,6 +1492,42 @@ textarea {
   max-width: 96px;
 }
 
+/* ---------- read-only sheet at the table ---------- */
+.sheet-read {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sheet-read-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sheet-read-row.wide {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+.sheet-read-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  flex: none;
+}
+.sheet-read-value {
+  font-size: 13px;
+  text-align: right;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.sheet-read-row.wide .sheet-read-value {
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .fm-newfolder {
   display: flex;
   align-items: center;
