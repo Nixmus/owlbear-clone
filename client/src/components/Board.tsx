@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import Icon from './Icon';
 import { can, type Role } from '../permissions';
-import type { Decal, Drawing, EraseStroke, FogShape, Token, Tool } from '../types';
+import type { Blocker, Decal, Drawing, EraseStroke, FogShape, Token, Tool } from '../types';
 import { useViewport } from '../hooks/useViewport';
 import { clamp, nanoid } from '../util';
 import type { Vec } from '../util';
@@ -26,6 +26,11 @@ interface Props {
   fogLightRadius: number;
   /** When on, players only see their own tokens. The GM is unaffected. */
   ownTokensOnly: boolean;
+  /**
+   * When set to a kind, the brush and the line draw walls/doors/windows
+   * instead of plain drawings. 'none' keeps normal drawing behaviour.
+   */
+  blockerKind: 'none' | Blocker['kind'];
   fillEnabled: boolean;
   fillColor: string;
   fillOpacity: number;
@@ -73,6 +78,7 @@ export default function Board({
   fogLighting,
   fogLightRadius,
   ownTokensOnly,
+  blockerKind,
   fillEnabled,
   fillColor,
   fillOpacity,
@@ -110,6 +116,7 @@ export default function Board({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [selectedDecalId, setSelectedDecalId] = useState<string | null>(null);
+  const [selectedBlockerId, setSelectedBlockerId] = useState<string | null>(null);
 
   // notify the app (Inspector) about the current selection
   useEffect(() => {
@@ -134,6 +141,36 @@ export default function Board({
   // Declared before the selectors below, which depend on it.
   const isGM = self.role === 'gm';
 
+  const sceneBlockers = useMemo(
+    () => (state.blockers || []).filter((b) => b.sceneId === scene?.id),
+    [state.blockers, scene?.id],
+  );
+  const selectedBlocker = sceneBlockers.find((b) => b.id === selectedBlockerId) || null;
+
+  /** True if moving this token to (x, y) would cross a closed blocker. */
+  const isTokenBlocked = useCallback(
+    (token: Token, x: number, y: number, gridSize: number) => {
+      // Open doors and windows are walkable, so they stop blocking movement.
+      const solid = sceneBlockers.filter((b) => b.kind === 'wall' || !b.open);
+      if (!solid.length) return false;
+      const half = (token.size * gridSize) / 2;
+      // The centre path plus the two side edges, so the body cannot slip past.
+      for (const off of [0, -half, half]) {
+        const x1 = token.x + half;
+        const y1 = token.y + half + off;
+        const x2 = x + half;
+        const y2 = y + half + off;
+        for (const b of solid) {
+          for (const s of segments(b.points)) {
+            if (segmentsIntersect(x1, y1, x2, y2, s.ax, s.ay, s.bx, s.by)) return true;
+          }
+        }
+      }
+      return false;
+    },
+    [sceneBlockers],
+  );
+
   const sceneTokens = useMemo(() => {
     const inScene = state.tokens.filter((t) => t.sceneId === scene?.id);
     // With lighting on and "own tokens only" enabled, players see just their
@@ -147,6 +184,7 @@ export default function Board({
     () => state.drawings.filter((d) => d.sceneId === scene?.id),
     [state.drawings, scene?.id],
   );
+
   const sceneDecals = useMemo(
     () => (state.decals || []).filter((d) => d.sceneId === scene?.id),
     [state.decals, scene?.id],
@@ -276,6 +314,10 @@ export default function Board({
         if (can(role, 'draw')) dispatch({ kind: 'drawing.remove', id: selectedDrawingId });
         setSelectedDrawingId(null);
       }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBlockerId) {
+        if (can(role, 'scene.manage')) dispatch({ kind: 'blocker.remove', id: selectedBlockerId });
+        setSelectedBlockerId(null);
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDecalId) {
         if (can(role, 'scene.manage')) dispatch({ kind: 'decal.remove', id: selectedDecalId });
         setSelectedDecalId(null);
@@ -284,6 +326,7 @@ export default function Board({
         setSelectedId(null);
         setSelectedDrawingId(null);
         setSelectedDecalId(null);
+        setSelectedBlockerId(null);
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -295,7 +338,16 @@ export default function Board({
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, [selectedId, selectedDrawingId, selectedDecalId, state.tokens, dispatch, role, self.id]);
+  }, [
+    selectedId,
+    selectedDrawingId,
+    selectedDecalId,
+    selectedBlockerId,
+    state.tokens,
+    dispatch,
+    role,
+    self.id,
+  ]);
 
   /* ---------------- pointer ---------------- */
   const panning = tool === 'pan' || spaceDown;
@@ -446,6 +498,9 @@ export default function Board({
           nx = Math.round(nx / step) * step;
           ny = Math.round(ny / step) * step;
         }
+        // Do not let a token cross a wall or a closed door/window. The centre
+        // and both edges of the token are tested, so it cannot squeeze through.
+        if (isTokenBlocked(token, nx, ny, scene.gridSize)) return;
         dispatch({ kind: 'token.update', id: drag.id, patch: { x: nx, y: ny } });
         // Only flip `moved` once. Calling setDrag on every pointermove
         // re-renders the whole board for nothing while dragging.
@@ -555,6 +610,20 @@ export default function Board({
       }
       case 'draw': {
         if (!draftPoints || draftPoints.length < 4) break;
+        // With a construction kind active, the brush and the line build walls,
+        // doors or windows instead of plain drawings.
+        if (blockerKind !== 'none' && can(role, 'scene.manage')) {
+          const blocker: Blocker = {
+            id: nanoid(),
+            sceneId: scene.id,
+            kind: blockerKind,
+            points: draftPoints,
+            open: false,
+          };
+          dispatch({ kind: 'blocker.add', blocker });
+          setSelectedBlockerId(blocker.id);
+          break;
+        }
         const drawing: Drawing = {
           id: nanoid(),
           sceneId: scene.id,
@@ -834,6 +903,71 @@ export default function Board({
           )}
         </svg>
 
+        {/* Walls, doors and windows. Click one to select it, then toggle it open. */}
+        {sceneBlockers.map((b) => {
+          const open = !!b.open;
+          const isSel = selectedBlockerId === b.id;
+          const path = pointsToPath(b.points);
+          return (
+            <g key={b.id}>
+              <path
+                d={path}
+                className={`blocker blocker-${b.kind} ${open ? 'open' : ''} ${
+                  isSel ? 'selected' : ''
+                }`}
+                onPointerDown={(e) => {
+                  if (tool !== 'select' || !can(role, 'scene.manage')) return;
+                  e.stopPropagation();
+                  setSelectedBlockerId(b.id);
+                  setSelectedId(null);
+                  setSelectedDecalId(null);
+                  setSelectedDrawingId(null);
+                }}
+              />
+              {b.kind !== 'wall' && (
+                <path d={path} className={`blocker-gap${open ? ' open' : ''}`} />
+              )}
+            </g>
+          );
+        })}
+
+        {/* Open/close affordance on the selected door or window. */}
+        {selectedBlocker && selectedBlocker.kind !== 'wall' && (() => {
+          const pts = selectedBlocker.points;
+          const mid = pointsMid(pts);
+          if (!mid) return null;
+          return (
+            <button
+              className="blocker-toggle"
+              style={{ left: mid.x, top: mid.y }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() =>
+                dispatch({
+                  kind: 'blocker.update',
+                  id: selectedBlocker.id,
+                  patch: { open: !selectedBlocker.open },
+                })
+              }
+              title={
+                selectedBlocker.open
+                  ? 'Cerrar: vuelve a bloquear la luz y el paso'
+                  : 'Abrir: deja pasar la luz y el paso'
+              }
+            >
+              {selectedBlocker.open ? 'Cerrar' : 'Abrir'}
+            </button>
+          );
+        })()}
+
+        {/* Preview of the wall being drawn */}
+        {draftPoints && blockerKind !== 'none' && (
+          <path
+            d={pointsToPath(draftPoints)}
+            className={`blocker blocker-${blockerKind} preview`}
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+
         {/* Decals: images laid over the map, behind the tokens. */}
         {sceneDecals.map((d) => (
           <div
@@ -877,6 +1011,7 @@ export default function Board({
             draftOpacity={fogOpacity}
             lights={lights}
             lightOn={fogLighting}
+            blockers={sceneBlockers}
             fogOccludes={fogOccludes}
             seeThrough={isGM && gmFogTransparent}
           />
@@ -1163,6 +1298,90 @@ function DrawingShape({ d, selected, hit }: { d: Drawing; selected?: boolean; hi
   }
 }
 
+function pointsMid(points: number[]): Vec | null {
+  if (points.length < 2) return null;
+  let x = 0;
+  let y = 0;
+  const n = points.length / 2;
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    x += points[i];
+    y += points[i + 1];
+  }
+  return { x: x / n, y: y / n };
+}
+
+function pointsToPath(points: number[]): string {
+  if (points.length < 2) return '';
+  let d = `M${points[0]} ${points[1]}`;
+  for (let i = 2; i + 1 < points.length; i += 2) d += `L${points[i]} ${points[i + 1]}`;
+  return d;
+}
+
+/** Every segment of a blocker polyline, as pairs of points. */
+function segments(points: number[]): { ax: number; ay: number; bx: number; by: number }[] {
+  const out = [];
+  for (let i = 0; i + 3 < points.length; i += 2) {
+    out.push({
+      ax: points[i],
+      ay: points[i + 1],
+      bx: points[i + 2],
+      by: points[i + 3],
+    });
+  }
+  return out;
+}
+
+/** Do two segments properly intersect? Used to stop tokens crossing walls. */
+export function segmentsIntersect(
+  a1x: number,
+  a1y: number,
+  a2x: number,
+  a2y: number,
+  b1x: number,
+  b1y: number,
+  b2x: number,
+  b2y: number,
+): boolean {
+  const d = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) =>
+    (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  const d1 = d(a1x, a1y, a2x, a2y, b1x, b1y);
+  const d2 = d(a1x, a1y, a2x, a2y, b2x, b2y);
+  const d3 = d(b1x, b1y, b2x, b2y, a1x, a1y);
+  const d4 = d(b1x, b1y, b2x, b2y, a2x, a2y);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+/**
+ * The shadow a wall segment casts from a point light: the quad bounded by the
+ * two rays from the light through the segment's ends, continued past it.
+ * Returned as an SVG path so the fog mask can paint it back in.
+ */
+export function shadowPath(
+  lx: number,
+  ly: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  reach: number,
+): string | null {
+  const la = Math.hypot(ax - lx, ay - ly);
+  const lb = Math.hypot(bx - lx, by - ly);
+  // Light sitting on the wall itself casts nothing useful.
+  if (la < 1 || lb < 1) return null;
+  const ux = (ax - lx) / la;
+  const uy = (ay - ly) / la;
+  const vx = (bx - lx) / lb;
+  const vy = (by - ly) / lb;
+  // Opposite sides of the light: no shadow between them.
+  if (ux * vx + uy * vy < -0.999) return null;
+  const ax2 = lx + ux * reach;
+  const ay2 = ly + uy * reach;
+  const bx2 = lx + vx * reach;
+  const by2 = ly + vy * reach;
+  return `M${lx} ${ly}L${ax} ${ay}L${ax2} ${ay2}L${bx2} ${by2}L${bx} ${by}Z`;
+}
+
 /** Axis-aligned bounds of a flattened point list, grown by `pad`. */
 function pointsBox(points: number[], pad: number) {
   if (points.length < 2) return null;
@@ -1243,6 +1462,7 @@ const FogLayer = memo(function FogLayer({
   draftOpacity,
   lights,
   lightOn,
+  blockers,
   fogOccludes,
   seeThrough,
 }: {
@@ -1258,6 +1478,7 @@ const FogLayer = memo(function FogLayer({
    */
   lights: { x: number; y: number; r: number }[];
   lightOn: boolean;
+  blockers: Blocker[];
   fogOccludes: boolean;
   seeThrough?: boolean;
 }) {
@@ -1336,13 +1557,19 @@ const FogLayer = memo(function FogLayer({
           )}
           {lightOn &&
             lights.map((l, i) => (
-              <circle
-                key={`light-${i}`}
-                cx={l.x}
-                cy={l.y}
-                r={l.r}
-                fill={`url(#light-${scene.id})`}
-              />
+              <g key={`light-${i}`}>
+                <circle cx={l.x} cy={l.y} r={l.r} fill={`url(#light-${scene.id})`} />
+                {/* What stops light: walls always, closed doors, never windows. An
+                    open door lets it through again, like an open window. */}
+                {blockers
+                  .filter((b) => b.kind === 'wall' || (b.kind === 'door' && !b.open))
+                  .flatMap((b) =>
+                    segments(b.points).map((s, k) => {
+                      const p = shadowPath(l.x, l.y, s.ax, s.ay, s.bx, s.by, l.r);
+                      return p ? <path key={`sh-${i}-${b.id}-${k}`} d={p} fill="#fff" /> : null;
+                    }),
+                  )}
+              </g>
             ))}
           {(() => {
             if (!draftShape) return null;

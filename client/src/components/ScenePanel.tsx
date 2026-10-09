@@ -19,6 +19,8 @@ interface Props {
   role: Role;
   /** Picking an image arms the decal tool, so the panel needs to set it. */
   setTool: (t: Tool) => void;
+  blockerKind: 'none' | 'wall' | 'door' | 'window';
+  setBlockerKind: (v: 'none' | 'wall' | 'door' | 'window') => void;
   color: string;
   setColor: (c: string) => void;
   strokeWidth: number;
@@ -309,8 +311,43 @@ export default function ScenePanel(props: Props) {
                 </div>
               </div>
 
+              {canManage && (
+                <>
+                  <div className="tool-divider" />
+                  <div className="section-label">Paredes, puertas y ventanas</div>
+                  <div className="blocker-picker">
+                    {(
+                      [
+                        ['none', 'Dibujo normal'],
+                        ['wall', 'Pared'],
+                        ['door', 'Puerta'],
+                        ['window', 'Ventana'],
+                      ] as const
+                    ).map(([v, label]) => (
+                      <button
+                        key={v}
+                        className={`blocker-opt ${props.blockerKind === v ? 'active' : ''}`}
+                        onClick={() => props.setBlockerKind(v)}
+                        title={
+                          v === 'none'
+                            ? 'El lápiz y la línea dibujan trazos normales'
+                            : `El lápiz y la línea dibujarán ${label.toLowerCase()}`
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="hint">
+                    {props.blockerKind === 'none'
+                      ? 'Con un tipo elegido, el lápiz y la línea construyen sobre el mapa en vez de dibujar trazos.'
+                      : 'Arrastra con el lápiz para una recta a mano alzada, o con la línea para una recta. Para abrir o cerrar, selecciónala y pulsa el botón.'}
+                  </span>
+                </>
+              )}
+
               <div className="tool-divider" />
-              <div className="section-label">Dibujo y niebla</div>
+              <div className="section-label">Dibujo</div>
               <div className="field">
                 <label>Color de dibujo</label>
                 <input type="color" value={props.color} onChange={(e) => props.setColor(e.target.value)} />

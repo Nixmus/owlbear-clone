@@ -122,9 +122,29 @@ export interface Decal {
   opacity?: number; // 0..1, defaults to 1
 }
 
+/**
+ * A wall, door or window drawn on the map.
+ *
+ * Drawn with the same tools as the brush and the line: a straight wall is
+ * simply a polyline of two points, a hand drawn wall is any number of them.
+ *
+ * Walls block light and movement. Doors block light but open to let you walk
+ * through, and you cannot see through them. Windows do not block light, so
+ * lamplight spills through into the fog, and they open like doors.
+ */
+export interface Blocker {
+  id: string;
+  sceneId: string;
+  kind: 'wall' | 'door' | 'window';
+  points: number[]; // flattened polyline [x1,y1,x2,y2,...]
+  /** Doors and windows only: whether the gap is passable. */
+  open?: boolean;
+}
+
 export interface RoomState {
   id: string;
   tokens: Token[];
+  blockers: Blocker[];
   decals: Decal[];
   drawings: Drawing[];
   erasers: EraseStroke[];
@@ -147,6 +167,9 @@ export type Action =
   | { kind: 'decal.add'; decal: Decal }
   | { kind: 'decal.update'; id: string; patch: Partial<Decal> }
   | { kind: 'decal.remove'; id: string }
+  | { kind: 'blocker.add'; blocker: Blocker }
+  | { kind: 'blocker.update'; id: string; patch: Partial<Blocker> }
+  | { kind: 'blocker.remove'; id: string }
   | { kind: 'drawing.add'; drawing: Drawing }
   | { kind: 'drawing.update'; id: string; patch: Partial<Drawing> }
   | { kind: 'drawing.remove'; id: string }

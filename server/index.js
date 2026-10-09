@@ -37,6 +37,7 @@ function emptyRoom(id) {
   return {
     id,
     tokens: [],
+    blockers: [],
     decals: [],
     drawings: [],
     erasers: [],
@@ -64,6 +65,7 @@ function loadRoom(roomId) {
       if (!Array.isArray(room.erasers)) room.erasers = [];
       // Same for decals, which were added later than the rest.
       if (!Array.isArray(room.decals)) room.decals = [];
+      if (!Array.isArray(room.blockers)) room.blockers = [];
       if (!Array.isArray(room.scenes) || room.scenes.length === 0) {
         const scene = emptyScene();
         room.scenes = [scene];
@@ -159,6 +161,7 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
       state.scenes = state.scenes.filter((s) => s.id !== action.id);
       if (state.activeSceneId === action.id) state.activeSceneId = state.scenes[0].id;
       state.tokens = state.tokens.filter((t) => t.sceneId !== action.id);
+      state.blockers = (state.blockers || []).filter((b) => b.sceneId !== action.id);
       state.decals = (state.decals || []).filter((d) => d.sceneId !== action.id);
       state.drawings = state.drawings.filter((d) => d.sceneId !== action.id);
       state.erasers = (state.erasers || []).filter((e) => e.sceneId !== action.id);
@@ -236,6 +239,41 @@ function applyAction(state, action, role = 'player', actorUserId = null) {
     case 'decal.remove':
       if (!isGM) return false;
       state.decals = (state.decals || []).filter((d) => d.id !== action.id);
+      return true;
+    case 'blocker.add': {
+      if (!isGM) return false;
+      const b = action.blocker;
+      if (!b || !b.id) return false;
+      if (!Array.isArray(b.points) || b.points.length < 4) return false;
+      if (!['wall', 'door', 'window'].includes(b.kind)) return false;
+      if (!state.blockers) state.blockers = [];
+      if (state.blockers.some((x) => x.id === b.id)) return false;
+      const pts = b.points.map(Number);
+      if (pts.some((n) => !Number.isFinite(n))) return false;
+      state.blockers.push({
+        id: b.id,
+        sceneId: b.sceneId,
+        kind: b.kind,
+        points: pts,
+        open: b.kind === 'wall' ? false : !!b.open,
+      });
+      return true;
+    }
+    case 'blocker.update': {
+      if (!isGM) return false;
+      const b = (state.blockers || []).find((x) => x.id === action.id);
+      if (!b) return false;
+      const p = action.patch || {};
+      if (Array.isArray(p.points)) {
+        const pts = p.points.map(Number);
+        if (pts.length >= 4 && pts.every((n) => Number.isFinite(n))) b.points = pts;
+      }
+      if ('open' in p) b.open = !!p.open;
+      return true;
+    }
+    case 'blocker.remove':
+      if (!isGM) return false;
+      state.blockers = (state.blockers || []).filter((b) => b.id !== action.id);
       return true;
     case 'drawing.add': {
       if (!action.drawing?.id) return false;

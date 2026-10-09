@@ -118,6 +118,12 @@ function Table() {
   const [decalOpacity, setDecalOpacity] = usePersistedState('vtt.decalOpacity', 1);
   // The side column shows one panel at a time; they stay mounted so unsaved
   // edits and scroll positions survive switching.
+  // With a construction kind set, the brush and the line draw walls instead of
+// plain drawings.
+const [blockerKind, setBlockerKind] = usePersistedState<'none' | 'wall' | 'door' | 'window'>(
+    'vtt.blockerKind',
+    'none',
+  );
   const [sideTab, setSideTab] = useState<'scene' | 'fog' | 'token' | 'chat' | 'history'>('chat');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showUsers, setShowUsers] = useState(false);
@@ -307,6 +313,7 @@ function Table() {
         fogLighting={fogLighting}
         fogLightRadius={fogLightRadius}
         ownTokensOnly={fogLighting && fogOwnTokensOnly}
+        blockerKind={blockerKind}
         decalImage={decalImage}
         decalSize={decalSize}
         decalOpacity={decalOpacity}
@@ -350,6 +357,8 @@ function Table() {
             <ScenePanel
               role={role}
               setTool={setTool}
+              blockerKind={blockerKind}
+              setBlockerKind={setBlockerKind}
               color={color}
               setColor={setColor}
               strokeWidth={strokeWidth}
