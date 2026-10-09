@@ -60,14 +60,16 @@ type Undoable = { kind: 'drawing.add' | 'erase.add'; id: string };
 const undoStack: Undoable[] = [];
 
 /**
- * Paint order for a scene. Every client runs this reducer over the same actions
- * in the same order, so they all assign the same seq to the same stroke, which
- * is what lets the eraser hide old strokes without hiding new ones drawn after
- * it. The server just stores the value.
+ * Paint order for a scene, used by the eraser to decide which strokes it hides.
+ *
+ * The number is stamped once by whoever drew the stroke and then travels with
+ * the action, so every client and the server agree on it regardless of the
+ * order the messages arrive in. It is seeded from the clock rather than from 0
+ * so that two clients creating strokes in the same instant cannot collide.
  */
-let paintSeq = 0;
-function nextSeq(current: number | undefined): number {
-  paintSeq = Math.max(paintSeq, current ?? 0) + 1;
+let paintSeq = Date.now();
+function nextSeq(): number {
+  paintSeq += 1;
   return paintSeq;
 }
 
@@ -164,7 +166,9 @@ export function reduce(state: RoomState, action: Action): RoomState {
       return { ...state, blockers: (state.blockers || []).filter((b) => b.id !== action.id) };
     case 'drawing.add': {
       if (state.drawings.some((d) => d.id === action.drawing.id)) return state;
-      const seq = nextSeq(action.drawing.seq);
+      // `dispatch` stamps the seq for our own strokes; remote ones arrive with
+      // the origin's value already attached.
+      const seq = action.drawing.seq != null ? action.drawing.seq : nextSeq();
       return { ...state, drawings: [...state.drawings, { ...action.drawing, seq }] };
     }
     case 'drawing.update':
@@ -185,7 +189,7 @@ export function reduce(state: RoomState, action: Action): RoomState {
     case 'erase.add': {
       const list = state.erasers || [];
       if (list.some((e) => e.id === action.erase.id)) return state;
-      const seq = nextSeq(action.erase.seq);
+      const seq = action.erase.seq != null ? action.erase.seq : nextSeq();
       return { ...state, erasers: [...list, { ...action.erase, seq }] };
     }
     case 'erase.remove':
@@ -282,16 +286,31 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   dispatch: (action) => {
+    // Paint order has to be stamped here, on the way out, and not inside the
+    // reducer: the reducer only runs locally, so a seq computed there never
+    // reached the server. Everything was stored as seq 0 and, because the
+    // eraser only hides strokes with a *lower* seq, erasing stopped working
+    // for everyone after a reload.
+    let out = action;
+    if (action.kind === 'drawing.add') {
+      out = { ...action, drawing: { ...action.drawing, seq: nextSeq() } };
+    } else if (action.kind === 'erase.add') {
+      out = { ...action, erase: { ...action.erase, seq: nextSeq() } };
+    }
+
     // optimistic local update
-    set((s) => ({ state: reduce(s.state, action), lastActionAt: Date.now() }));
-    if (action.kind === 'drawing.add' || action.kind === 'erase.add') {
-      undoStack.push({ kind: action.kind, id: action.kind === 'drawing.add' ? action.drawing.id : action.erase.id });
+    set((s) => ({ state: reduce(s.state, out), lastActionAt: Date.now() }));
+    if (out.kind === 'drawing.add' || out.kind === 'erase.add') {
+      undoStack.push({
+        kind: out.kind,
+        id: out.kind === 'drawing.add' ? out.drawing.id : out.erase.id,
+      });
       if (undoStack.length > 100) undoStack.shift();
     }
     if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'action', action }));
+      socket.send(JSON.stringify({ type: 'action', action: out }));
     } else {
-      pending.push(action);
+      pending.push(out);
     }
   },
 
@@ -403,6 +422,20 @@ export const useStore = create<Store>((set, get) => ({
           // it is dropped: we already applied it locally.
           if (msg.from && msg.from === get().clientId) break;
           set((s) => ({ state: reduce(s.state, msg.action), lastActionAt: Date.now() }));
+          break;
+        case 'token.snap':
+          // The server refused a move that crossed a wall. We already applied it
+          // optimistically and we drop our own echoes, so this is the only thing
+          // that puts the token back where the server says it is.
+          set((s) => ({
+            state: {
+              ...s.state,
+              tokens: s.state.tokens.map((t) =>
+                t.id === msg.id ? { ...t, x: msg.x, y: msg.y } : t,
+              ),
+            },
+            lastActionAt: Date.now(),
+          }));
           break;
         case 'players': {
           const list: Player[] = msg.players || [];

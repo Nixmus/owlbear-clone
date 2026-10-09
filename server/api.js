@@ -875,7 +875,10 @@ router.patch('/folders/:id', auth, (req, res) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
   const patch = body(req);
-  const name = cleanFolderName(patch.name);
+  // The name is optional: a privacy change sends only { visibility }, and
+  // requiring a name made every folder visibility toggle fail with
+  // "Nombre de carpeta no válido".
+  const name = 'name' in patch ? cleanFolderName(patch.name) : f.name;
   if (!name) return res.status(400).json({ error: 'Nombre de carpeta no válido' });
   if (name === f.name && !('visibility' in patch)) return res.json({ ok: true });
   try {

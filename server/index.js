@@ -139,6 +139,83 @@ function clamp01(n) {
   return Math.min(1, Math.max(0, n));
 }
 
+/* ------------------------------------------------------------------ *
+ * Walls, doors and windows
+ *
+ * The same geometry lives in client/src/components/Board.tsx. It is repeated
+ * here on purpose: the server cannot import from the TypeScript client, and the
+ * point of this copy is that a tampered client still cannot walk through a wall.
+ * ------------------------------------------------------------------ */
+
+function blockerSegments(points) {
+  const out = [];
+  if (!Array.isArray(points)) return out;
+  for (let i = 0; i + 3 < points.length; i += 2) {
+    out.push({ ax: points[i], ay: points[i + 1], bx: points[i + 2], by: points[i + 3] });
+  }
+  return out;
+}
+
+function segmentsIntersect(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y) {
+  const cross = (px, py, qx, qy, rx, ry) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  const d1 = cross(a1x, a1y, a2x, a2y, b1x, b1y);
+  const d2 = cross(a1x, a1y, a2x, a2y, b2x, b2y);
+  const d3 = cross(b1x, b1y, b2x, b2y, a1x, a1y);
+  const d4 = cross(b1x, b1y, b2x, b2y, a2x, a2y);
+  return (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  );
+}
+
+/** A blocker a body cannot pass: a wall, or a door/window that is closed. */
+function blocksMovement(b) {
+  return b.kind === 'wall' || !b.open;
+}
+
+/** True if moving this token to (x, y) would cross a closed blocker. */
+function moveIsBlocked(state, token, x, y) {
+  const solid = (state.blockers || []).filter(
+    (b) => b.sceneId === token.sceneId && blocksMovement(b),
+  );
+  if (!solid.length) return false;
+  const scene = state.scenes.find((s) => s.id === token.sceneId);
+  const gridSize = Number.isFinite(Number(scene?.gridSize)) ? Number(scene.gridSize) : 70;
+  const half = ((Number(token.size) || 1) * gridSize) / 2;
+  // The centre path plus both side edges, so a body cannot squeeze sideways.
+  for (const off of [0, -half, half]) {
+    const x1 = (Number(token.x) || 0) + half;
+    const y1 = (Number(token.y) || 0) + half + off;
+    const x2 = x + half;
+    const y2 = y + half + off;
+    for (const b of solid) {
+      for (const s of blockerSegments(b.points)) {
+        if (segmentsIntersect(x1, y1, x2, y2, s.ax, s.ay, s.bx, s.by)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Movement is refused here rather than in `applyAction`, because the sender also
+ * needs telling: the client applies moves optimistically and drops its own
+ * echoes, so a silently dropped patch would leave the token drawn past the wall
+ * until the next full reload. Returns the real position to snap back to, or
+ * null when the action may proceed.
+ */
+function refusedMove(state, action, isGM) {
+  if (isGM) return null;
+  if (!action || action.kind !== 'token.update') return null;
+  const patch = action.patch || {};
+  if (!('x' in patch) && !('y' in patch)) return null;
+  const token = state.tokens.find((t) => t.id === action.id);
+  if (!token) return null;
+  const nx = Number.isFinite(Number(patch.x)) ? Number(patch.x) : Number(token.x) || 0;
+  const ny = Number.isFinite(Number(patch.y)) ? Number(patch.y) : Number(token.y) || 0;
+  if (!moveIsBlocked(state, token, nx, ny)) return null;
+  return { id: token.id, x: Number(token.x) || 0, y: Number(token.y) || 0 };
+}
+
 function applyAction(state, action, role = 'player', actorUserId = null) {
   if (!action || typeof action !== 'object') return false;
   const isGM = role === 'gm';
@@ -541,6 +618,14 @@ wss.on('connection', (ws) => {
     if (msg.type === 'action') {
       const player = players.get(ws.roomId)?.get(ws.clientId);
       const role = player?.role === 'gm' ? 'gm' : 'player';
+      const isGM = role === 'gm';
+      // Server-authoritative movement. The GM is exempt on both sides: they
+      // build the map and must be able to place a token anywhere.
+      const snap = refusedMove(entry.state, msg.action, isGM);
+      if (snap) {
+        send(ws, { type: 'token.snap', ...snap });
+        return;
+      }
       if (applyAction(entry.state, msg.action, role, ws.userId)) {
         persist(ws.roomId);
         broadcast(ws.roomId, { type: 'action', action: msg.action, from: ws.clientId });

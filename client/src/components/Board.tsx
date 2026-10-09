@@ -500,7 +500,9 @@ export default function Board({
         }
         // Do not let a token cross a wall or a closed door/window. The centre
         // and both edges of the token are tested, so it cannot squeeze through.
-        if (isTokenBlocked(token, nx, ny, scene.gridSize)) return;
+        // The GM is exempt: they build the map and must be able to place a
+        // token anywhere. The server enforces the same rule for players.
+        if (!isGM && isTokenBlocked(token, nx, ny, scene.gridSize)) return;
         dispatch({ kind: 'token.update', id: drag.id, patch: { x: nx, y: ny } });
         // Only flip `moved` once. Calling setDrag on every pointermove
         // re-renders the whole board for nothing while dragging.
